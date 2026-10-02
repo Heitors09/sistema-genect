@@ -1,9 +1,89 @@
 import { stageColors } from "../format";
+import { migrateState } from "../migrate";
 import type { AppState } from "../types";
 
-export const STORE_KEY = "genecthub-state-v4";
+export const STORE_KEY = "genecthub-state-v7";
 
-export const seed: AppState = {
+const FILL_TEMPLATES = [
+  {
+    produtoId: "prod-camiseta",
+    tipoNegocio: "servico" as const,
+    precoUnitario: 42,
+    loteId: "lot-malha-a",
+    terceirizadoIds: ["ter-ana"],
+    valorServicoPorPeca: 4.2,
+    quantidade: 240,
+  },
+  {
+    produtoId: "prod-vestido",
+    tipoNegocio: "fabricacao" as const,
+    precoUnitario: 89,
+    loteId: "lot-viscose",
+    terceirizadoIds: ["ter-silva"],
+    valorServicoPorPeca: 5,
+    quantidade: 180,
+  },
+  {
+    produtoId: "prod-calca",
+    tipoNegocio: "fabricacao" as const,
+    precoUnitario: 129,
+    loteId: "lot-jeans",
+    terceirizadoIds: ["ter-norte"],
+    valorServicoPorPeca: 6.5,
+    quantidade: 120,
+  },
+];
+
+const FILL_CORES = ["Preto", "Branco", "Verde musgo", "Terracota", "Off-white", "Indigo", "Areia"];
+
+function fillKanbanOps() {
+  const plan: { stageId: string; status: "aberta" | "em_producao" | "revisao"; count: number }[] = [
+    { stageId: "st-recebimento", status: "aberta", count: 6 },
+    { stageId: "st-corte", status: "em_producao", count: 6 },
+    { stageId: "st-costura", status: "em_producao", count: 5 },
+    { stageId: "st-acabamento", status: "em_producao", count: 6 },
+    { stageId: "st-revisao", status: "revisao", count: 6 },
+    { stageId: "st-expedicao", status: "em_producao", count: 7 },
+  ];
+  const clientes = ["cli-aurora", "cli-leste", "cli-casa"];
+  const empresas = ["emp-genect", "emp-atelier"];
+  const ops = [];
+  let n = 0;
+  for (const col of plan) {
+    for (let i = 0; i < col.count; i++) {
+      const t = FILL_TEMPLATES[n % FILL_TEMPLATES.length];
+      const num = 24101 + n;
+      const day = String(Math.min(8 + (n % 22), 30)).padStart(2, "0");
+      ops.push({
+        id: `op-k-${num}`,
+        numero: `OP-${num}`,
+        dataEntrada: n % 13 === 0 ? "2026-08-22" : `2026-09-${day}`,
+        empresaId: empresas[n % 2],
+        clienteId: clientes[n % 3],
+        produtoId: t.produtoId,
+        tipoNegocio: t.tipoNegocio,
+        cor: FILL_CORES[n % FILL_CORES.length],
+        quantidade: t.quantidade + (n % 5) * 20,
+        precoUnitario: t.precoUnitario,
+        observacoes: "",
+        terceirizadoIds: t.terceirizadoIds,
+        valorServicoPorPeca: t.valorServicoPorPeca,
+        quantidadeProduzida: col.status === "aberta" ? 0 : Math.floor(t.quantidade * 0.45),
+        perdas: n % 7 === 0 ? 2 : 0,
+        refugo: 0,
+        lotesInsumo: [{ loteId: t.loteId, quantidade: 36 + n }],
+        atados: [],
+        status: col.status,
+        stageId: col.stageId,
+        createdAt: `2026-09-${day}T10:00:00.000Z`,
+      });
+      n += 1;
+    }
+  }
+  return ops;
+}
+
+const rawSeed = {
   usuarioId: "u-admin",
   usuarios: [
     {
@@ -29,6 +109,7 @@ export const seed: AppState = {
     { id: "cli-aurora", nome: "Loja Aurora", ativo: true },
     { id: "cli-leste", nome: "Magazine Leste", ativo: true },
     { id: "cli-casa", nome: "Casa Brava Atacado", ativo: true },
+    { id: "cli-delpaz", nome: "Delpaz", ativo: true },
   ],
   fornecedores: [
     {
@@ -77,11 +158,11 @@ export const seed: AppState = {
       unidadeConsumo: "m",
       fatorConversao: 2.4,
       estoqueMinimo: 80,
-      custoMedio: 42.9,
       estoqueAtual: 186,
       reservado: 72,
       fornecedorId: "for-malharia",
       refFornecedor: "HZ-CAN-9604",
+      cor: "Cru",
     },
     {
       id: "ins-viscose",
@@ -92,11 +173,11 @@ export const seed: AppState = {
       unidadeConsumo: "m",
       fatorConversao: 1,
       estoqueMinimo: 120,
-      custoMedio: 18.5,
       estoqueAtual: 340,
       reservado: 90,
       fornecedorId: "for-malharia",
       refFornecedor: "HZ-VIS-140",
+      cor: "Preto",
     },
     {
       id: "ins-jeans",
@@ -107,11 +188,11 @@ export const seed: AppState = {
       unidadeConsumo: "m",
       fatorConversao: 1,
       estoqueMinimo: 60,
-      custoMedio: 27.4,
       estoqueAtual: 95,
       reservado: 48,
       fornecedorId: "for-malharia",
       refFornecedor: "HZ-JNS-11",
+      cor: "Indigo",
     },
     {
       id: "ins-ziper",
@@ -122,11 +203,11 @@ export const seed: AppState = {
       unidadeConsumo: "un",
       fatorConversao: 1,
       estoqueMinimo: 400,
-      custoMedio: 1.15,
       estoqueAtual: 1280,
       reservado: 300,
       fornecedorId: "for-aviamentos",
       refFornecedor: "AC-ZIP-50P",
+      cor: "Preto",
     },
     {
       id: "ins-botao",
@@ -137,11 +218,11 @@ export const seed: AppState = {
       unidadeConsumo: "un",
       fatorConversao: 144,
       estoqueMinimo: 20,
-      custoMedio: 18,
       estoqueAtual: 64,
       reservado: 8,
       fornecedorId: "for-aviamentos",
       refFornecedor: "AC-BTN-18",
+      cor: "Pérola",
     },
     {
       id: "ins-etiqueta",
@@ -152,11 +233,11 @@ export const seed: AppState = {
       unidadeConsumo: "un",
       fatorConversao: 1000,
       estoqueMinimo: 5,
-      custoMedio: 42,
       estoqueAtual: 12,
       reservado: 1.2,
       fornecedorId: "for-aviamentos",
       refFornecedor: "AC-ETQ-25",
+      cor: "",
     },
     {
       id: "ins-linha",
@@ -167,11 +248,11 @@ export const seed: AppState = {
       unidadeConsumo: "m",
       fatorConversao: 5000,
       estoqueMinimo: 30,
-      custoMedio: 9.8,
       estoqueAtual: 74,
       reservado: 6,
       fornecedorId: "for-aviamentos",
       refFornecedor: "AC-LIN-120",
+      cor: "Preto",
     },
   ],
   lotes: [
@@ -234,23 +315,21 @@ export const seed: AppState = {
       linha: "Verão 26",
       cores: ["Preto", "Off-white", "Terracota"],
       tamanhos: ["P", "M", "G", "GG"],
+      variacoes: ["P", "M", "G", "GG"].map((tamanho) => ({
+        tamanho,
+        cores: ["Preto", "Off-white", "Terracota"],
+      })),
       materiaPrimaId: "ins-viscose",
       consumoTecidoPorPeca: 1.8,
       aviamentos: [
+        { insumoId: "ins-viscose", consumoPorPeca: 1.8 },
         { insumoId: "ins-ziper", consumoPorPeca: 1 },
         { insumoId: "ins-etiqueta", consumoPorPeca: 1 },
         { insumoId: "ins-linha", consumoPorPeca: 45 },
       ],
-      roteiro: [
-        { id: "r1", nome: "Corte", kind: "corte", minutos: 4 },
-        { id: "r2", nome: "Costura", kind: "costura", minutos: 22 },
-        { id: "r3", nome: "Caseado", kind: "acabamento", minutos: 6 },
-        { id: "r4", nome: "Revisão", kind: "revisao", minutos: 5 },
-        { id: "r5", nome: "Embalagem", kind: "embalagem", minutos: 3 },
-      ],
-      custoEstimado: 38.4,
       precoVenda: 89,
-      fotoHint: "Midi regata evasê",
+      descricao: "Midi regata evasê. Ficha com viscose lisa.",
+      imagens: [],
     },
     {
       id: "prod-camiseta",
@@ -261,21 +340,20 @@ export const seed: AppState = {
       linha: "Essencial",
       cores: ["Preto", "Branco", "Verde musgo"],
       tamanhos: ["P", "M", "G", "GG", "XGG"],
+      variacoes: ["P", "M", "G", "GG", "XGG"].map((tamanho) => ({
+        tamanho,
+        cores: ["Preto", "Branco", "Verde musgo"],
+      })),
       materiaPrimaId: "ins-malha",
       consumoTecidoPorPeca: 0.55,
       aviamentos: [
+        { insumoId: "ins-malha", consumoPorPeca: 0.55 },
         { insumoId: "ins-etiqueta", consumoPorPeca: 1 },
         { insumoId: "ins-linha", consumoPorPeca: 28 },
       ],
-      roteiro: [
-        { id: "c1", nome: "Corte", kind: "corte", minutos: 2 },
-        { id: "c2", nome: "Costura", kind: "costura", minutos: 12 },
-        { id: "c3", nome: "Revisão", kind: "revisao", minutos: 3 },
-        { id: "c4", nome: "Embalagem", kind: "embalagem", minutos: 2 },
-      ],
-      custoEstimado: 18.9,
       precoVenda: 42,
-      fotoHint: "Oversize gola careca",
+      descricao: "Oversize gola careca.",
+      imagens: [],
     },
     {
       id: "prod-calca",
@@ -286,23 +364,22 @@ export const seed: AppState = {
       linha: "Inverno 26",
       cores: ["Indigo", "Preto"],
       tamanhos: ["38", "40", "42", "44", "46"],
+      variacoes: ["38", "40", "42", "44", "46"].map((tamanho) => ({
+        tamanho,
+        cores: ["Indigo", "Preto"],
+      })),
       materiaPrimaId: "ins-jeans",
       consumoTecidoPorPeca: 1.6,
       aviamentos: [
+        { insumoId: "ins-jeans", consumoPorPeca: 1.6 },
         { insumoId: "ins-botao", consumoPorPeca: 1 },
         { insumoId: "ins-ziper", consumoPorPeca: 1 },
         { insumoId: "ins-etiqueta", consumoPorPeca: 1 },
         { insumoId: "ins-linha", consumoPorPeca: 80 },
       ],
-      roteiro: [
-        { id: "p1", nome: "Corte", kind: "corte", minutos: 6 },
-        { id: "p2", nome: "Terceirizado", kind: "faccao", minutos: 38 },
-        { id: "p3", nome: "Revisão", kind: "revisao", minutos: 8 },
-        { id: "p4", nome: "Embalagem", kind: "embalagem", minutos: 4 },
-      ],
-      custoEstimado: 52,
       precoVenda: 129,
-      fotoHint: "Wide leg cintura alta",
+      descricao: "Wide leg cintura alta.",
+      imagens: [],
     },
   ],
   boardNodes: [
@@ -372,10 +449,10 @@ export const seed: AppState = {
       lotesInsumo: [{ loteId: "lot-viscose", quantidade: 90 }],
       parentOpId: "op-1",
       atados: [
-        { id: "at-1e", codigo: "AT-24091-A1", quantidade: 50, terceirizadoId: "ter-silva", stageId: "st-faccao", status: "em_setor" },
+        { id: "at-1e", codigo: "AT-24091-A1", quantidade: 50, terceirizadoId: "ter-silva", stageId: "st-costura", status: "em_setor" },
       ],
       status: "em_producao",
-      stageId: "st-faccao",
+      stageId: "st-costura",
       createdAt: "2026-09-19T11:00:00.000Z",
     },
     {
@@ -407,7 +484,7 @@ export const seed: AppState = {
     {
       id: "op-3",
       numero: "OP-24093",
-      dataEntrada: "2026-09-16",
+      dataEntrada: "2026-08-20",
       empresaId: "emp-atelier",
       clienteId: "cli-casa",
       produtoId: "prod-calca",
@@ -487,7 +564,7 @@ export const seed: AppState = {
       numero: "OP-24080",
       dataEntrada: "2026-09-02",
       empresaId: "emp-genect",
-      clienteId: "cli-casa",
+      clienteId: "cli-delpaz",
       produtoId: "prod-camiseta",
       tipoNegocio: "servico",
       cor: "Preto",
@@ -505,6 +582,7 @@ export const seed: AppState = {
       stageId: "st-expedicao",
       createdAt: "2026-09-02T09:00:00.000Z",
     },
+    ...fillKanbanOps(),
   ],
   contasPagar: [
     {
@@ -548,8 +626,8 @@ export const seed: AppState = {
     {
       id: "cr-1",
       empresaId: "emp-genect",
-      clienteId: "cli-casa",
-      descricao: "Faturamento OP-24080",
+      clienteId: "cli-delpaz",
+      descricao: "Venda REF-118 · Preto 588 pç · OP-24080",
       origem: "faturamento",
       origemId: "fat-1",
       opId: "op-6",
@@ -565,7 +643,7 @@ export const seed: AppState = {
     {
       id: "fat-1",
       opId: "op-6",
-      clienteId: "cli-casa",
+      clienteId: "cli-delpaz",
       empresaId: "emp-genect",
       valor: 24696,
       data: "2026-09-12",
@@ -619,4 +697,19 @@ export const seed: AppState = {
       nota: "Reserva OP-24091",
     },
   ],
+  roteiros: [],
+  notificacoes: [],
+  recibos: [],
+  categoriasInsumo: [],
+  tamanhosPadrao: [],
+} as unknown as AppState;
+
+const migrated = migrateState(rawSeed);
+export const seed: AppState = {
+  ...migrated,
+  ops: migrated.ops.map((op) => {
+    if (op.id === "op-1" || op.id === "op-k-24108") return { ...op, prioridade: true };
+    if (op.id === "op-2" || op.id === "op-k-24101") return { ...op, urgente: true };
+    return op;
+  }),
 };

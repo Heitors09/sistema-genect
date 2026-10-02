@@ -1,4 +1,4 @@
-import type { InsumoCategoria, OpStatus, OrcamentoStatus, OrigemFinanceira, StageKind, TipoNegocio } from "./types";
+import type { MicroStatus, OpStatus, OrcamentoStatus, OrigemFinanceira, StageKind, TipoNegocio } from "./types";
 
 export const brl = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -25,6 +25,20 @@ export function formatDateTime(iso: string) {
   });
 }
 
+export function formatRelative(iso: string) {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return iso;
+  const sec = Math.round((Date.now() - t) / 1000);
+  if (sec < 45) return "agora";
+  const min = Math.round(sec / 60);
+  if (min < 60) return `há ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `há ${h} h`;
+  const d = Math.round(h / 24);
+  if (d < 7) return `há ${d} d`;
+  return formatDateTime(iso);
+}
+
 export function parseBRL(value: string) {
   const cleaned = value.replace(/[^\d,.-]/g, "").trim();
   if (!cleaned) return NaN;
@@ -47,11 +61,19 @@ export function uid(prefix = "id") {
   return `${prefix}-${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-4)}`;
 }
 
+export function shortCode() {
+  const raw =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().replace(/-/g, "")
+      : `${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`;
+  return raw.slice(0, 6).toUpperCase();
+}
+
 export function produtoLabel(nome: string, referencia?: string) {
   return referencia ? `${nome} · ${referencia}` : nome;
 }
 
-export const categoriaLabel: Record<InsumoCategoria, string> = {
+export const categoriaLabel: Record<string, string> = {
   tecido: "Tecidos",
   linha: "Linhas",
   botao: "Botões",
@@ -60,6 +82,10 @@ export const categoriaLabel: Record<InsumoCategoria, string> = {
   embalagem: "Embalagens",
   aviamento: "Aviamentos",
 };
+
+export function labelCategoria(cat: string) {
+  return categoriaLabel[cat] ?? cat;
+}
 
 export const tipoNegocioLabel: Record<TipoNegocio, string> = {
   servico: "Serviço de costura",
@@ -115,6 +141,14 @@ export function saldoConta(valor: number, movimentos: { valor: number; estornado
   const pago = movimentos.filter((m) => !m.estornado).reduce((a, b) => a + b.valor, 0);
   return Math.max(0, Number((valor - pago).toFixed(2)));
 }
+
+export const microStatusLabel: Record<MicroStatus, string> = {
+  aguardando: "Aguardando",
+  em_andamento: "Em andamento",
+  pausada: "Pausada",
+  concluida: "Concluída",
+  pendencia: "Pendência",
+};
 
 export function statusConta(valor: number, movimentos: { valor: number; estornado: boolean }[]) {
   const saldo = saldoConta(valor, movimentos);

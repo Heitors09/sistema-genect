@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Badge, Button, Field, Input, PageHeader, Select, DataTable, Td } from "@/components/ui";
 import { brl, competenciaAtual, formatDate, saldoConta, statusConta, todayISO } from "@/lib/format";
+import { pecasOpPorSku, resumoPecasSku } from "@/lib/estoque-produto";
 import { useStore } from "@/lib/store/store";
 
 export default function ReceberPage() {
@@ -31,20 +32,30 @@ export default function ReceberPage() {
       <PageHeader
         kicker="Financeiro"
         title="Faturar e receber"
-        description="A OP não vira receita sozinha. Fature internamente para gerar a conta a receber."
+        description="O estoque produzido (tamanho + cor) vira conta a receber na venda — como a da Delpaz."
       />
 
       <div className="surface rounded-md p-4">
         <p className="kicker mb-3">OPs aguardando faturamento interno</p>
         <div className="divide-y divide-line">
           {naoFaturadas.length === 0 ? <p className="text-[13px] text-faint">Nada pendente.</p> : null}
-          {naoFaturadas.map((op) => (
+          {naoFaturadas.map((op) => {
+            const prod = state.produtos.find((p) => p.id === op.produtoId);
+            const cli = state.clientes.find((c) => c.id === op.clienteId);
+            const pecas = op.quantidadeProduzida || op.quantidade;
+            const skus = pecasOpPorSku(op);
+            return (
             <div key={op.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
               <Link href={`/ops/${op.id}`} className="shrink-0 font-mono text-[13px] text-sky hover:underline">
                 {op.numero}
               </Link>
+              <span className="min-w-0 truncate text-[12px] text-mute">
+                {cli?.nome}
+                {prod ? ` · ${prod.referencia}` : ""}
+                {resumoPecasSku(skus) ? ` · ${resumoPecasSku(skus)}` : ""}
+              </span>
               <span className="ml-auto tabular-nums text-[13px] text-mute">
-                {brl.format(op.quantidade * op.precoUnitario)}
+                {brl.format(pecas * (op.precoUnitario || 0))}
               </span>
               <Button
                 size="sm"
@@ -60,7 +71,8 @@ export default function ReceberPage() {
                 Faturar
               </Button>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

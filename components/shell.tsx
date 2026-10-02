@@ -4,17 +4,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  Bell,
   ChevronLeft,
   ChevronRight,
   Menu,
-  Moon,
   Search,
   X,
 } from "lucide-react";
 import { mobileTabs, navItemActive, visibleGroups } from "@/lib/nav";
 import { useStore } from "@/lib/store/store";
 import { DemoAssistant } from "./chat/demo-assistant";
+import { useKanbanFull } from "./board/kanban-full";
+import { NotifBell, NotifToasts } from "./notifications/notif-center";
+import { SearchTrigger } from "./search/command-search";
+import { ThemeToggle } from "./theme";
 import { cn } from "./ui";
 
 function BrandMark({ compact }: { compact?: boolean }) {
@@ -23,7 +25,7 @@ function BrandMark({ compact }: { compact?: boolean }) {
       aria-hidden
       className={cn(
         "grid place-items-center rounded-md border border-line font-semibold tracking-[-0.06em] text-ink",
-        "bg-[linear-gradient(180deg,#242530_0%,#16171f_100%)] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.12)]",
+        "bg-[linear-gradient(180deg,var(--brand-from)_0%,var(--brand-to)_100%)] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.12)]",
         compact ? "h-7 w-full text-[13px]" : "h-8 w-8 text-[13px]",
       )}
     >
@@ -35,6 +37,7 @@ function BrandMark({ compact }: { compact?: boolean }) {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { state, dispatch, currentUser, isAdmin } = useStore();
+  const { full, setFull } = useKanbanFull();
   const [collapsed, setCollapsed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -42,7 +45,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setMenuOpen(false);
-  }, [pathname]);
+    if (pathname !== "/") setFull(false);
+  }, [pathname, setFull]);
 
   useEffect(() => {
     document.body.style.overflow = menuOpen ? "hidden" : "";
@@ -73,7 +77,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
     return true;
   }).length;
-  const alertas = state.insumos.filter((i) => i.estoqueAtual - i.reservado <= i.estoqueMinimo).length;
 
   const navHrefs = groups.flatMap((g) => g.items.map((i) => i.href));
   const currentTitle =
@@ -83,23 +86,34 @@ export function AppShell({ children }: { children: ReactNode }) {
       ?.label ?? "GenectHub";
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-[#05060a] p-0 text-ink md:p-3">
-      {menuOpen ? (
-        <button
-          type="button"
-          className="fixed inset-0 z-30 bg-black/55 md:hidden"
-          aria-label="Fechar menu"
-          onClick={() => setMenuOpen(false)}
-        />
-      ) : null}
+    <div className={cn("flex h-dvh overflow-hidden bg-chrome text-ink transition-[padding] duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)]", full ? "p-3 md:p-4" : "p-0 md:p-3")}>
+      <button
+        type="button"
+        className={cn(
+          "scrim fixed inset-0 z-30 bg-black/55 md:hidden",
+          menuOpen ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
+        aria-label="Fechar menu"
+        aria-hidden={!menuOpen}
+        tabIndex={menuOpen ? 0 : -1}
+        onClick={() => setMenuOpen(false)}
+      />
 
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-bg md:rounded-md md:border md:border-line md:shadow-[0_28px_80px_rgb(0_0_0_/_0.55)]">
+      <div
+        className={cn(
+          "flex min-h-0 min-w-0 flex-1 overflow-hidden bg-bg transition-[box-shadow,border-radius] duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
+          full
+            ? "rounded-md border border-line"
+            : "md:rounded-md md:border md:border-line md:shadow-[var(--app-shadow)]",
+        )}
+      >
       <aside
         className={cn(
-          "flex h-full shrink-0 flex-col border-r border-line bg-sidebar",
-          "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:w-[min(20rem,88vw)] max-md:transition-transform max-md:duration-200",
+          "flex h-full shrink-0 flex-col border-r border-line bg-sidebar md:transition-[width] md:duration-[280ms] md:ease-[cubic-bezier(0.22,1,0.36,1)]",
+          "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:w-[min(20rem,88vw)] max-md:transition-transform max-md:duration-[280ms] max-md:ease-[cubic-bezier(0.22,1,0.36,1)]",
           menuOpen ? "max-md:translate-x-0" : "max-md:-translate-x-full",
           collapsed ? "md:w-[72px]" : "md:w-[248px]",
+          full && "hidden",
         )}
       >
         <div className={cn("flex items-center gap-2 px-3 py-3", collapsed && "md:justify-center md:px-2")}>
@@ -112,7 +126,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               className="group relative hidden h-7 w-full place-items-center md:grid"
             >
               <BrandMark compact />
-              <span className="absolute inset-0 grid place-items-center rounded-md bg-[#16171f]/92 text-ink opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+              <span className="absolute inset-0 grid place-items-center rounded-md bg-elevated/92 text-ink opacity-0 transition-opacity duration-150 group-hover:opacity-100">
                 <ChevronRight size={16} strokeWidth={2} />
               </span>
             </button>
@@ -124,7 +138,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p className="truncate text-[14px] font-semibold leading-tight tracking-[-0.035em]">
               GenectHub
             </p>
-            <p className="truncate text-[10px] text-faint">Chão de fábrica</p>
+            <p className="truncate text-[10px] text-faint">Confecção</p>
           </div>
           <button
             type="button"
@@ -151,7 +165,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className={cn("px-3 pb-2", collapsed && "md:hidden")}>
             <div
               className={cn(
-                "well flex h-11 items-center gap-2 rounded-md border px-3 transition-[border-color,box-shadow] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] md:h-8 md:px-2",
+                "well flex h-11 items-center gap-2 rounded-md border px-3 transition-[border-color,box-shadow] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] md:h-8 md:px-2",
                 query
                   ? "border-line-strong shadow-[0_0_0_1px_rgb(255_255_255_/_0.05)]"
                   : "border-line",
@@ -160,7 +174,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Search
                 size={13}
                 className={cn(
-                  "shrink-0 text-faint transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                  "shrink-0 text-faint transition-transform duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
                   typing && "scale-110 text-mute",
                 )}
               />
@@ -211,7 +225,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                         <span className={cn("truncate", collapsed && "md:hidden")}>{item.label}</span>
                       ) : null}
                       {(!collapsed || menuOpen) && item.href === "/ops" ? (
-                        <span className={cn("ml-auto rounded-md border border-line bg-elevated/80 px-1.5 text-[10px] text-mute", collapsed && "md:hidden")}>
+                        <span className={cn("ml-auto rounded border border-line bg-elevated/80 px-1 text-[9px] leading-none tabular-nums text-mute", collapsed && "md:hidden")}>
                           {opsCount}
                         </span>
                       ) : null}
@@ -266,7 +280,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-sidebar/70 px-3 backdrop-blur md:h-12 md:gap-3 md:px-4">
+        <header className={cn("relative z-[70] flex h-12 shrink-0 items-center gap-2 border-b border-line bg-sidebar/70 px-3 backdrop-blur md:h-12 md:gap-3 md:px-4", full && "hidden")}>
           <button
             type="button"
             className="grid h-10 w-10 place-items-center rounded-md text-ink hover:bg-elevated md:hidden"
@@ -287,40 +301,29 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="text-mute">Genect Confecções</span>
           </div>
           <div className="ml-auto flex items-center gap-1.5">
-            <button
-              type="button"
-              className="relative grid h-10 w-10 place-items-center rounded-md border border-line text-mute hover:bg-elevated md:h-8 md:w-8"
-              aria-label="Alertas de estoque"
-            >
-              <Bell size={16} />
-              {alertas > 0 ? (
-                <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-rose md:right-1.5 md:top-1.5" />
-              ) : null}
-            </button>
-            <button
-              type="button"
-              className="hidden h-8 w-8 place-items-center rounded-md border border-line text-mute hover:bg-elevated md:grid"
-              aria-label="Tema"
-            >
-              <Moon size={15} />
-            </button>
+            <SearchTrigger />
+            <NotifBell />
+            <ThemeToggle />
             <div className="hidden items-center gap-2 rounded-md border border-line bg-elevated/80 py-1 pl-1 pr-3 md:flex">
-              <div className="grid h-6 w-6 place-items-center rounded-md bg-[#eceef2] text-[10px] font-semibold text-[#0c0d10]">
+              <div className="grid h-6 w-6 place-items-center rounded-md bg-[var(--avatar-bg)] text-[10px] font-semibold text-[var(--avatar-ink)]">
                 {currentUser.nome.slice(0, 2).toUpperCase()}
               </div>
               <span className="max-w-[9rem] truncate text-[12px] text-ink">{currentUser.nome.split(" ")[0]}</span>
             </div>
           </div>
         </header>
-        <main className="min-h-0 flex-1 overflow-auto overscroll-contain pb-[calc(8.75rem+env(safe-area-inset-bottom))] md:pb-24">
-          {children}
+        <main className={cn("flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain", full ? "pb-0" : "pb-[calc(8.75rem+env(safe-area-inset-bottom))] md:pb-24")}>
+          <div key={pathname} className="page-enter flex min-h-0 flex-1 flex-col">
+            {children}
+          </div>
         </main>
-        <DemoAssistant />
+        {full ? null : <DemoAssistant />}
+        <NotifToasts />
       </div>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-sidebar/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
-        <div className="grid h-14 grid-cols-5">
+      <nav className={cn("fixed inset-x-0 bottom-0 z-20 border-t border-line bg-sidebar/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden", full && "hidden")}>
+        <div className={cn("grid h-14", tabs.length >= 4 ? "grid-cols-5" : "grid-cols-4")}>
           {tabs.map((item) => {
             const active = navItemActive(pathname, item.href, tabs.map((t) => t.href));
             const Icon = item.icon;
@@ -329,7 +332,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 text-[10px]",
+                  "flex flex-col items-center justify-center gap-0.5 text-[10px] transition-colors duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
                   active ? "text-ink" : "text-mute",
                 )}
               >

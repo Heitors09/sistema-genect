@@ -20,7 +20,7 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 import Link from "next/link";
-import { Check, ChevronDown } from "lucide-react";
+import { Calendar, Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 export function cn(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -38,7 +38,7 @@ function buttonClass(
     "motion-press inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md font-medium disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 disabled:active:scale-100",
     size === "sm" ? "h-7 shrink-0 px-2.5 text-[11px]" : "min-h-11 px-3.5 text-[14px] md:h-9 md:min-h-0 md:text-[13px]",
     variant === "primary" &&
-      "bg-[#f3f4f6] text-[#0c0d10] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.7),0_8px_18px_rgb(0_0_0_/_0.28)] hover:bg-white hover:shadow-[inset_0_1px_0_rgb(255_255_255_/_0.8),0_10px_20px_rgb(0_0_0_/_0.32)]",
+      "bg-btn text-btn-ink shadow-[inset_0_1px_0_rgb(255_255_255_/_0.18),0_8px_18px_rgb(0_0_0_/_0.18)] hover:bg-[var(--btn-hover)]",
     variant === "ghost" &&
       "border border-line bg-transparent text-ink shadow-[inset_0_1px_0_rgb(255_255_255_/_0.04)] hover:bg-elevated",
     variant === "soft" &&
@@ -107,6 +107,285 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   return <input className={cn(control, className)} {...props} />;
 }
 
+const WEEKDAYS = [
+  { key: "dom", label: "D" },
+  { key: "seg", label: "S" },
+  { key: "ter", label: "T" },
+  { key: "qua", label: "Q" },
+  { key: "qui", label: "Q" },
+  { key: "sex", label: "S" },
+  { key: "sab", label: "S" },
+];
+const MONTHS = [
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
+];
+
+function parseISODate(iso: string) {
+  const [y, m, d] = (iso || "").slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+function toISODate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function sameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function calendarCells(cursor: Date) {
+  const start = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const startWeekday = start.getDay();
+  const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+  const prevMonthDays = new Date(cursor.getFullYear(), cursor.getMonth(), 0).getDate();
+  const cells: { date: Date; current: boolean }[] = [];
+  for (let i = startWeekday - 1; i >= 0; i--) {
+    cells.push({
+      date: new Date(cursor.getFullYear(), cursor.getMonth() - 1, prevMonthDays - i),
+      current: false,
+    });
+  }
+  for (let day = 1; day <= daysInMonth; day++) {
+    cells.push({ date: new Date(cursor.getFullYear(), cursor.getMonth(), day), current: true });
+  }
+  while (cells.length % 7 !== 0) {
+    const last = cells[cells.length - 1].date;
+    cells.push({
+      date: new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1),
+      current: false,
+    });
+  }
+  return cells;
+}
+
+export function DateInput({
+  value,
+  onChange,
+  disabled,
+  name,
+  required,
+  className,
+}: InputHTMLAttributes<HTMLInputElement>) {
+  const current = String(value ?? "");
+  const selected = parseISODate(current);
+  const today = useMemo(() => {
+    const n = new Date();
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  }, []);
+  const [open, setOpen] = useState(false);
+  const [panel, setPanel] = useState(false);
+  const [cursor, setCursor] = useState(() => selected ?? today);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const cells = useMemo(() => calendarCells(cursor), [cursor]);
+
+  useEffect(() => {
+    if (open) setCursor(parseISODate(current) ?? today);
+  }, [open, current, today]);
+
+  useEffect(() => {
+    if (open) {
+      setPanel(true);
+      return;
+    }
+    const t = window.setTimeout(() => setPanel(false), 160);
+    return () => window.clearTimeout(t);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(ev: MouseEvent) {
+      if (!rootRef.current?.contains(ev.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  function emit(next: string) {
+    onChange?.({
+      target: { value: next, name: name ?? "" },
+      currentTarget: { value: next, name: name ?? "" },
+    } as ChangeEvent<HTMLInputElement>);
+    setOpen(false);
+  }
+
+  const label = selected
+    ? `${String(selected.getDate()).padStart(2, "0")}/${String(selected.getMonth() + 1).padStart(2, "0")}/${selected.getFullYear()}`
+    : "Selecionar data";
+
+  return (
+    <div ref={rootRef} className={cn("relative min-w-0", className)}>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label="Data"
+        onClick={() => !disabled && setOpen((v) => !v)}
+        onKeyDown={(ev) => {
+          if (ev.key === "Escape") setOpen(false);
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            setOpen((v) => !v);
+          }
+        }}
+        className={cn(
+          control,
+          "flex w-full cursor-pointer items-center justify-between gap-3 pr-3 text-left tabular-nums",
+          open && "border-line-strong",
+          disabled && "cursor-not-allowed opacity-45",
+          !selected && "text-faint",
+        )}
+      >
+        <span className="min-w-0 truncate">{label}</span>
+        <Calendar size={15} strokeWidth={1.75} className="shrink-0 text-faint" />
+      </button>
+      {panel ? (
+        <div
+          role="dialog"
+          aria-label="Calendário"
+          className={cn(
+            "absolute z-50 mt-1 w-full min-w-[17.75rem] origin-top rounded-md border border-line-strong bg-popover p-2.5 shadow-[0_18px_40px_rgb(0_0_0_/_0.18),inset_0_1px_0_rgb(255_255_255_/_0.06)]",
+            open ? "motion-rise-in" : "pointer-events-none motion-rise-out",
+          )}
+        >
+          <div className="mb-2 flex items-center justify-between gap-2 px-0.5">
+            <button
+              type="button"
+              className="grid h-8 w-8 place-items-center rounded-md text-mute hover:bg-elevated hover:text-ink"
+              aria-label="Mês anterior"
+              onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <p className="text-[13px] font-medium capitalize text-ink">
+              {MONTHS[cursor.getMonth()]} {cursor.getFullYear()}
+            </p>
+            <button
+              type="button"
+              className="grid h-8 w-8 place-items-center rounded-md text-mute hover:bg-elevated hover:text-ink"
+              aria-label="Próximo mês"
+              onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-0.5">
+            {WEEKDAYS.map((day) => (
+              <span key={day.key} className="grid h-7 place-items-center text-[10px] font-medium uppercase tracking-[0.12em] text-faint">
+                {day.label}
+              </span>
+            ))}
+            {cells.map((cell) => {
+              const iso = toISODate(cell.date);
+              const isSelected = selected ? sameDay(cell.date, selected) : false;
+              const isToday = sameDay(cell.date, today);
+              return (
+                <button
+                  key={iso}
+                  type="button"
+                  onClick={() => emit(iso)}
+                  className={cn(
+                    "grid h-8 place-items-center rounded-md text-[12px] tabular-nums",
+                    isSelected
+                      ? "bg-btn text-btn-ink"
+                      : isToday
+                        ? "text-sky hover:bg-elevated"
+                        : cell.current
+                          ? "text-ink hover:bg-elevated"
+                          : "text-faint hover:bg-elevated/70",
+                  )}
+                >
+                  {cell.date.getDate()}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-2 flex items-center justify-between border-t border-line pt-2">
+            <button
+              type="button"
+              className="rounded-md px-2 py-1 text-[12px] text-sky hover:bg-elevated"
+              onClick={() => emit(toISODate(today))}
+            >
+              Hoje
+            </button>
+            <button
+              type="button"
+              className="rounded-md px-2 py-1 text-[12px] text-mute hover:bg-elevated hover:text-ink"
+              onClick={() => setOpen(false)}
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {name ? <input type="hidden" name={name} value={current} required={required} /> : null}
+    </div>
+  );
+}
+
+export function FileInput({
+  accept,
+  multiple,
+  disabled,
+  emptyLabel = "Nenhum arquivo selecionado",
+  actionLabel = "Escolher",
+  className,
+  onFiles,
+}: {
+  accept?: string;
+  multiple?: boolean;
+  disabled?: boolean;
+  emptyLabel?: string;
+  actionLabel?: string;
+  className?: string;
+  onFiles: (files: FileList | null) => void | Promise<void>;
+}) {
+  const id = useId();
+  const [names, setNames] = useState<string[]>([]);
+  const label =
+    names.length === 0 ? emptyLabel : names.length === 1 ? names[0] : `${names.length} arquivos selecionados`;
+
+  return (
+    <label
+      htmlFor={id}
+      className={cn(
+        control,
+        "flex cursor-pointer items-center justify-between gap-3",
+        disabled && "cursor-not-allowed opacity-45",
+        className,
+      )}
+    >
+      <span className={cn("min-w-0 truncate", names.length === 0 && "text-faint")}>{label}</span>
+      <span className="shrink-0 text-[12px] text-sky">{actionLabel}</span>
+      <input
+        id={id}
+        type="file"
+        accept={accept}
+        multiple={multiple}
+        disabled={disabled}
+        className="sr-only"
+        onChange={(e) => {
+          const files = e.target.files;
+          setNames(files ? [...files].map((f) => f.name) : []);
+          void onFiles(files);
+        }}
+      />
+    </label>
+  );
+}
+
 type SelectOption = { value: string; label: string; disabled?: boolean };
 
 function nodeText(node: ReactNode): string {
@@ -141,7 +420,12 @@ export function Select({
   disabled,
   name,
   required,
-}: SelectHTMLAttributes<HTMLSelectElement>) {
+  footer,
+  triggerClassName,
+}: SelectHTMLAttributes<HTMLSelectElement> & {
+  footer?: ReactNode;
+  triggerClassName?: string;
+}) {
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -227,6 +511,7 @@ export function Select({
           "flex w-full cursor-pointer items-center justify-between gap-3 pr-3 text-left",
           open && "border-line-strong",
           disabled && "cursor-not-allowed opacity-45",
+          triggerClassName,
         )}
       >
         <span className={cn("min-w-0 truncate", !selected?.value && "text-faint")}>
@@ -235,7 +520,7 @@ export function Select({
         <ChevronDown
           size={16}
           strokeWidth={1.75}
-          className={cn("shrink-0 text-faint transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]", open && "rotate-180")}
+          className={cn("shrink-0 text-faint transition-transform duration-[280ms] ease-[cubic-bezier(0.22,1,0.36,1)]", open && "rotate-180")}
         />
       </button>
       {panel ? (
@@ -243,7 +528,7 @@ export function Select({
           id={listId}
           role="listbox"
           className={cn(
-            "absolute z-50 mt-1 max-h-60 w-full origin-top overflow-auto rounded-md border border-line-strong bg-[#12131a] p-1 shadow-[0_18px_40px_rgb(0_0_0_/_0.55),inset_0_1px_0_rgb(255_255_255_/_0.06)]",
+            "absolute z-50 mt-1 max-h-60 min-w-full w-max origin-top overflow-auto rounded-md border border-line-strong bg-popover p-1 shadow-[0_18px_40px_rgb(0_0_0_/_0.18),inset_0_1px_0_rgb(255_255_255_/_0.06)]",
             open ? "motion-rise-in" : "pointer-events-none motion-rise-out",
           )}
         >
@@ -263,18 +548,19 @@ export function Select({
                 className={cn(
                   "flex w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-[13px]",
                   isSelected
-                    ? "bg-[#f3f4f6] text-[#0c0d10]"
+                    ? "bg-btn text-btn-ink"
                     : isActive
                       ? "bg-elevated text-ink"
                       : "text-ink hover:bg-elevated/80",
                   o.disabled && "cursor-not-allowed opacity-40",
                 )}
               >
-                <span className="min-w-0 truncate">{o.label}</span>
+                <span className="whitespace-nowrap">{o.label}</span>
                 {isSelected ? <Check size={14} strokeWidth={2} className="shrink-0" /> : null}
               </button>
             );
           })}
+          {footer ? <div className="mt-1 border-t border-line pt-1">{footer}</div> : null}
         </div>
       ) : null}
       {name ? <input type="hidden" name={name} value={current} required={required} /> : null}
@@ -291,6 +577,8 @@ export function CreatableSelect({
   addPlaceholder = "Novo item",
   onAdd,
   disabled,
+  className,
+  triggerClassName,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -300,6 +588,8 @@ export function CreatableSelect({
   addPlaceholder?: string;
   onAdd: (label: string) => void;
   disabled?: boolean;
+  className?: string;
+  triggerClassName?: string;
 }) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -313,51 +603,57 @@ export function CreatableSelect({
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <Select
-        value={adding ? "__novo__" : value}
-        disabled={disabled}
-        onChange={(e) => {
-          if (e.target.value === "__novo__") {
-            setAdding(true);
-            return;
-          }
-          setAdding(false);
-          onChange(e.target.value);
-        }}
-      >
-        {emptyLabel ? <option value="">{emptyLabel}</option> : null}
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-        <option value="__novo__">{addLabel}</option>
-      </Select>
-      {adding ? (
-        <div className="flex gap-2">
-          <Input
-            value={draft}
-            autoFocus
-            placeholder={addPlaceholder}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                commit();
-              }
-              if (e.key === "Escape") {
-                setAdding(false);
-                setDraft("");
-              }
-            }}
-          />
-          <Button type="button" size="sm" onClick={commit}>
-            Adicionar
-          </Button>
-        </div>
-      ) : null}
-    </div>
+    <Select
+      value={value}
+      disabled={disabled}
+      className={className}
+      triggerClassName={triggerClassName}
+      onChange={(e) => onChange(e.target.value)}
+      footer={
+        adding ? (
+          <div className="flex gap-1 p-0.5" onMouseDown={(e) => e.preventDefault()}>
+            <input
+              value={draft}
+              autoFocus
+              placeholder={addPlaceholder}
+              className="well h-8 min-w-0 flex-1 rounded-md border border-line px-2 text-[12px] text-ink outline-none"
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commit();
+                }
+                if (e.key === "Escape") {
+                  setAdding(false);
+                  setDraft("");
+                }
+              }}
+            />
+            <Button type="button" size="sm" className="h-8 px-2.5" onClick={commit}>
+              Ok
+            </Button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={disabled}
+            className="flex w-full cursor-pointer items-center rounded-md px-2.5 py-2 text-left text-[12px] text-sky hover:bg-elevated/80"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setAdding(true)}
+          >
+            {addLabel}
+          </button>
+        )
+      }
+    >
+      {emptyLabel ? <option value="">{emptyLabel}</option> : null}
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </Select>
   );
 }
 
@@ -373,10 +669,14 @@ export function Card({ className, children }: { className?: string; children: Re
 
 export function Badge({
   tone = "mute",
+  size = "md",
   children,
+  className,
 }: {
   tone?: "mute" | "mint" | "sky" | "rose" | "amber" | "violet";
+  size?: "md" | "sm";
   children: ReactNode;
+  className?: string;
 }) {
   const map = {
     mute: "border border-line bg-elevated/80 text-mute",
@@ -387,7 +687,14 @@ export function Badge({
     violet: "border border-violet/20 bg-violet/10 text-violet",
   };
   return (
-    <span className={cn("inline-flex h-7 shrink-0 items-center rounded-md px-2 text-[11px] font-medium leading-none", map[tone])}>
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center justify-center font-medium leading-none tabular-nums transition-[background-color,border-color,color] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
+        size === "sm" ? "h-4 min-w-4 rounded px-1 text-[9px]" : "h-5 rounded px-1.5 text-[10px]",
+        map[tone],
+        className,
+      )}
+    >
       {children}
     </span>
   );
@@ -411,7 +718,7 @@ export function PageHeader({
         <h1 className="page-title">{title}</h1>
         {description ? <p className="lede hidden md:block">{description}</p> : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2 pt-0.5">{actions}</div> : null}
+      {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
     </div>
   );
 }
@@ -501,6 +808,34 @@ export function Empty({ title, hint }: { title: string; hint?: string }) {
     <div className="rounded-md border border-dashed border-line px-4 py-10 text-center">
       <p className="text-sm text-ink">{title}</p>
       {hint ? <p className="mt-1 text-[12px] text-mute">{hint}</p> : null}
+    </div>
+  );
+}
+
+export function Modal({
+  open,
+  title,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center md:px-4">
+      <button type="button" className="scrim motion-fade-in absolute inset-0 bg-black/55" aria-label="Fechar" onClick={onClose} />
+      <div className="surface page-enter relative max-h-[90dvh] w-full overflow-y-auto rounded-t-md p-4 md:max-w-lg md:rounded-md">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-[15px] font-semibold tracking-[-0.02em]">{title}</p>
+          <button type="button" className="text-[12px] text-mute hover:text-ink" onClick={onClose}>
+            Fechar
+          </button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }

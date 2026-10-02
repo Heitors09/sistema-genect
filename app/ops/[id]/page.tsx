@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { use, useMemo, useState } from "react";
-import { Badge, Button, Card, Field, Input, Select, Stat, cn } from "@/components/ui";
+import { Badge, Button, Card, Field, Input, Select, Stat, Textarea, cn } from "@/components/ui";
 import {
   brl,
   categoriaLabel,
@@ -14,9 +14,12 @@ import {
   tipoNegocioLabel,
   todayISO,
 } from "@/lib/format";
-import { linhasReserva } from "@/lib/ficha";
+import { consumoEmEstoque, necessidadesOp } from "@/lib/ficha";
+import { linhasValorServico } from "@/lib/migrate";
 import { isSplitOp, opStageLabels } from "@/lib/op-flow";
 import { useLookups, useStore } from "@/lib/store/store";
+import { OpFamilyMark } from "@/components/ops/op-family-mark";
+import { ValorServicoResumo } from "@/components/ops/valor-servico";
 
 function FakeQr({ code }: { code: string }) {
   const cells = useMemo(() => {
@@ -50,16 +53,21 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
   const [splitTer, setSplitTer] = useState(op?.terceirizadoIds[0] ?? "");
   const [splitStage, setSplitStage] = useState(op?.stageId ?? "");
   const [tab, setTab] = useState<"fluxo" | "insumos" | "financeiro">("fluxo");
+  const [pendencia, setPendencia] = useState("");
 
   if (!op) return <p className="p-6 text-sm text-mute">OP não encontrada.</p>;
 
   const prod = produto(op.produtoId);
   const billed = state.faturamentos.some((f) => f.opId === op.id);
   const acerto = state.contasPagar.find((c) => c.origem === "faccao" && c.origemId === op.id);
+  const pecasServico = op.quantidadeProduzida || op.quantidade;
+  const calcServico = linhasValorServico(op.micros, state.terceirizados, pecasServico);
   const filhas = state.ops.filter((o) => o.parentOpId === op.id);
   const visible =
     isAdmin || (currentUser.terceirizadoId && op.terceirizadoIds.includes(currentUser.terceirizadoId));
   if (!visible) return <p className="p-6 text-sm text-mute">Sem acesso a esta OP.</p>;
+
+  const needsInsumo = necessidadesOp(op, state.produtos);
 
   return (
     <div className="space-y-4 p-4">
@@ -71,6 +79,7 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
             {prod ? produtoLabel(prod.nome, prod.referencia) : "—"}
             {op.cor ? ` · ${op.cor}` : ""} · {cliente(op.clienteId)?.nome} · {empresa(op.empresaId)?.nome}
           </p>
+          <OpFamilyMark op={op} ops={state.ops} className="mt-1 text-[12px]" />
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge tone={op.status === "finalizada" ? "mint" : op.status === "cancelada" ? "rose" : "sky"}>
@@ -79,6 +88,26 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
           <Badge tone={op.tipoNegocio === "fabricacao" ? "amber" : "violet"}>
             {tipoNegocioLabel[op.tipoNegocio]}
           </Badge>
+          {op.urgente ? <Badge tone="rose">Urgente</Badge> : null}
+          {op.prioridade ? <Badge tone="amber">Prioridade</Badge> : null}
+          {isAdmin ? (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => dispatch({ type: "SET_OP_FLAGS", opId: op.id, urgente: !op.urgente })}
+              >
+                {op.urgente ? "Tirar urgente" : "Marcar urgente"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => dispatch({ type: "SET_OP_FLAGS", opId: op.id, prioridade: !op.prioridade })}
+              >
+                {op.prioridade ? "Tirar prioridade" : "Marcar prioridade"}
+              </Button>
+            </>
+          ) : null}
           {op.parentOpId ? (
             <Link href={`/ops/${op.parentOpId}`} className="text-[12px] text-violet hover:underline">
               Ver OP mãe
@@ -97,14 +126,14 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
       <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
         <Card className="p-4">
           <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-2 text-[12px]">
-            {(["fluxo", "insumos", "financeiro"] as const).map((t) => (
+            {(isAdmin ? (["fluxo", "insumos", "financeiro"] as const) : (["fluxo"] as const)).map((t) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => setTab(t)}
                 className={cn(
-                  "shrink-0 rounded-md px-3 py-2",
-                  t === tab ? "bg-elevated font-medium text-ink" : "text-mute",
+                  "motion-press shrink-0 rounded-md px-3 py-2",
+                  t === tab ? "bg-elevated font-medium text-ink" : "text-mute hover:bg-elevated/60",
                 )}
               >
                 {t === "fluxo" ? "Rastreio e atados" : t === "insumos" ? "Insumos e lote" : "Serviço e faturamento"}
@@ -113,7 +142,78 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
           </div>
 
           {tab === "fluxo" ? (
-            <div className="mt-3 space-y-4">
+            <div className="page-enter mt-3 space-y-4">
+              {op.fotosFicha.length || prod?.imagens.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {[...op.fotosFicha, ...(prod?.imagens ?? [])].map((src) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img key={src.slice(0, 32)} src={src} alt="Ficha da peça" className="h-24 w-24 rounded-md object-cover" />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[12px] text-faint">Nenhuma foto da ficha anexada.</p>
+              )}
+              {op.linhas[0]?.variacoes?.length ? (
+                <p className="text-[12px] text-mute">
+                  Grade:{" "}
+                  {op.linhas.flatMap((l) => l.variacoes).map((v) => `${v.tamanho || "—"} ${v.cor} (${v.quantidade})`).join(" · ")}
+                </p>
+              ) : null}
+              {op.micros.length ? (
+                <div className="space-y-1.5">
+                  <p className="kicker">Micro-caminho {op.roteiroNome ? `· ${op.roteiroNome}` : ""}</p>
+                  {op.micros.map((m, i) => {
+                    const prev = op.micros[i - 1];
+                    const isOu = Boolean(m.altGroup && prev?.altGroup === m.altGroup);
+                    return (
+                      <div key={m.id}>
+                        {i > 0 ? (
+                          <p className="py-0.5 pl-2 text-[10px] font-medium uppercase tracking-[0.14em] text-faint">
+                            {isOu ? "ou" : "depois"}
+                          </p>
+                        ) : null}
+                        <div
+                          className={cn(
+                            "flex flex-wrap items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-[12px]",
+                            isOu ? "ml-4 border-sky/25 bg-sky/5" : "border-line",
+                          )}
+                        >
+                          <span>{m.nome}</span>
+                          <span className="text-faint">{m.status}</span>
+                          {isAdmin || m.terceirizadoId === currentUser.terceirizadoId ? (
+                            <span className="flex gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => dispatch({ type: "MICRO_ACTION", opId: op.id, microId: m.id, status: "em_andamento" })}>Iniciar</Button>
+                              <Button size="sm" variant="ghost" onClick={() => dispatch({ type: "MICRO_ACTION", opId: op.id, microId: m.id, status: "pausada" })}>Pausar</Button>
+                              <Button size="sm" variant="ghost" onClick={() => dispatch({ type: "MICRO_ACTION", opId: op.id, microId: m.id, status: "concluida" })}>Finalizar</Button>
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+              <div className="rounded-md border border-line p-3">
+                <p className="kicker mb-2">Pendência para a fábrica</p>
+                {op.pendencias.map((p) => (
+                  <p key={p.id} className="mb-1 text-[12px] text-mute">
+                    {p.autor}: {p.texto}
+                  </p>
+                ))}
+                <Textarea value={pendencia} onChange={(e) => setPendencia(e.target.value)} placeholder="Descreva a pendência" />
+                <div className="mt-2 flex justify-end">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      if (!pendencia.trim()) return;
+                      dispatch({ type: "ADD_PENDENCIA", opId: op.id, texto: pendencia.trim(), autor: currentUser.nome });
+                      setPendencia("");
+                    }}
+                  >
+                    Enviar pendência
+                  </Button>
+                </div>
+              </div>
               <p className="text-[12px] text-mute">
                 Etapa{isSplitOp(op) ? "s" : ""}:{" "}
                 <span className="text-ink">{opStageLabels(op, (id) => stage(id)?.label)}</span>
@@ -238,49 +338,51 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
           ) : null}
 
           {tab === "insumos" ? (
-            <div className="mt-3 space-y-2 text-[13px]">
-              {prod
-                ? linhasReserva(prod, op.tipoNegocio).map((linha) => {
-                    const ins = insumo(linha.insumoId);
-                    const loteUsado = op.lotesInsumo.find((l) => lote(l.loteId)?.insumoId === linha.insumoId);
+            <div className="page-enter mt-3 space-y-2 text-[13px]">
+              {needsInsumo.length ? (
+                <>
+                  {needsInsumo.map((n) => {
+                    const ins = insumo(n.insumoId);
+                    const loteUsado = op.lotesInsumo.find((l) => lote(l.loteId)?.insumoId === n.insumoId);
                     const lt = loteUsado ? lote(loteUsado.loteId) : undefined;
+                    const estoque = ins ? consumoEmEstoque(n.qtdConsumo, ins) : n.qtdConsumo;
                     return (
-                      <div key={linha.insumoId} className="rounded-md border border-line bg-panel px-3 py-2">
+                      <div key={n.insumoId} className="rounded-md border border-line bg-panel px-3 py-2">
                         <p className="font-medium">{ins?.codigo} · {ins?.descricao}</p>
                         <p className="text-[12px] text-mute">
-                          {ins ? categoriaLabel[ins.categoria] : "Insumo"} · {linha.consumoPorPeca} / peça ·{" "}
-                          {(linha.consumoPorPeca * op.quantidade).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} reservados
+                          {ins ? (categoriaLabel[ins.categoria] ?? ins.categoria) : "Insumo"} ·{" "}
+                          {n.qtdConsumo.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} {ins?.unidadeConsumo} da ficha
+                          {ins && ins.fatorConversao !== 1
+                            ? ` · ${estoque.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} ${ins.unidadeCompra} em estoque`
+                            : null}
                         </p>
                         {lt ? (
-                          <p className="mt-1 text-[12px] text-faint">
-                            Lote {lt.loteFabricante} · NF {lt.nf} · {loteUsado?.quantidade} {lt.unidade}
-                          </p>
+                            <p className="mt-1 text-[12px] text-faint">
+                              Lote {lt.loteFabricante} · NF {lt.nf} · {loteUsado?.quantidade} {ins?.unidadeConsumo ?? lt.unidade}
+                            </p>
                         ) : null}
                       </div>
                     );
-                  })
-                : null}
-              {!prod || !linhasReserva(prod, op.tipoNegocio).length ? (
+                  })}
+                  <p className="text-[12px] text-faint">
+                    {op.tipoNegocio === "servico"
+                      ? "Reserva só do que a Genect compra neste serviço. O restante vem do cliente."
+                      : "Baixa a partir da unidade de consumo da ficha. Lotes diferentes de tecido podem variar de tom."}
+                  </p>
+                </>
+              ) : (
                 <p className="text-[12px] text-faint">
                   {op.tipoNegocio === "servico"
                     ? "Serviço de costura: o cliente envia o material. Nenhum insumo reservado do estoque."
                     : "Nenhum insumo na ficha deste produto."}
-                </p>
-              ) : (
-                <p className="text-[12px] text-faint">
-                  {op.tipoNegocio === "servico"
-                    ? "Reserva só do que a Genect compra neste serviço. O restante vem do cliente."
-                    : "Reserva da ficha de fabricação. Lotes diferentes de tecido podem variar de tom."}
                 </p>
               )}
             </div>
           ) : null}
 
           {tab === "financeiro" && isAdmin ? (
-            <div className="mt-3 space-y-3 text-[13px]">
-              <p>
-                Serviço de terceirizado previsto: {brl.format((op.quantidadeProduzida || op.quantidade) * op.valorServicoPorPeca)}
-              </p>
+            <div className="page-enter mt-3 space-y-3 text-[13px]">
+              <ValorServicoResumo pecas={pecasServico} linhas={calcServico.linhas} total={calcServico.total} />
               <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"

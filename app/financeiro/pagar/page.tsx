@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Badge, Button, Field, Input, PageHeader, Select, DataTable, Td } from "@/components/ui";
+import { Badge, Button, DateInput, Field, Input, PageHeader, Select, DataTable, Td } from "@/components/ui";
 import { brl, formatDate, origemLabel, saldoConta, statusConta, todayISO, uid } from "@/lib/format";
 import type { OrigemFinanceira } from "@/lib/types";
 import { useStore } from "@/lib/store/store";
@@ -69,7 +69,7 @@ export default function PagarPage() {
           <Input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} required />
         </Field>
         <Field label="Vencimento">
-          <Input type="date" value={vencimento} onChange={(e) => setVenc(e.target.value)} />
+          <DateInput value={vencimento} onChange={(e) => setVenc(e.target.value)} />
         </Field>
         <Field label="Competência">
           <Input value={competencia} onChange={(e) => setComp(e.target.value)} />

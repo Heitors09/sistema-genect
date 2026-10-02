@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, ChevronLeft, ChevronRight, Plus, Trash2, X } from "lucide-react";
 import { nInt, stageKindLabel, uid } from "@/lib/format";
-import { atadosInStage, isSplitOp, opsInStage, pecasInStage } from "@/lib/op-flow";
+import { atadosInStage, isSplitOp, opsInStage, pecasInStage, sortFamilyFirst } from "@/lib/op-flow";
 import type { BoardNode, OrdemProducao, StageKind } from "@/lib/types";
 import { newStage, useLookups, useStore } from "@/lib/store/store";
+import { familyCardClass, OpFamilyMark } from "../ops/op-family-mark";
 import { Button, cn } from "../ui";
 
 const kinds: StageKind[] = [
@@ -123,7 +124,10 @@ export function MobileKanban() {
         style={{ touchAction: "pan-x" }}
       >
         {stages.map((stage, index) => {
-          const ops = visibleOps(state.ops, stage.id, isAdmin, currentUser.terceirizadoId);
+          const ops = sortFamilyFirst(
+            state.ops,
+            visibleOps(state.ops, stage.id, isAdmin, currentUser.terceirizadoId),
+          );
           const pecas = ops.reduce((a, o) => a + pecasInStage(o, stage.id), 0);
           const links = state.boardEdges.filter((e) => e.source === stage.id);
           return (
@@ -235,7 +239,7 @@ export function MobileKanban() {
                         key={op.id}
                         className={cn(
                           "rounded-md border bg-panel/80 p-2.5 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.04)]",
-                          isSplitOp(op) ? "border-amber/35 border-l-2 border-l-amber" : "border-line",
+                          familyCardClass(op, state.ops) || (isSplitOp(op) ? "border-amber/35 border-l-2 border-l-amber" : "border-line"),
                           selected?.opId === op.id && selected.fromStageId === stage.id && "border-line-strong",
                         )}
                         onClick={(e) => e.stopPropagation()}
@@ -249,6 +253,7 @@ export function MobileKanban() {
                               ) : null}
                             </p>
                             <p className="truncate text-[11px] text-mute">{prod?.nome}</p>
+                            <OpFamilyMark op={op} ops={state.ops} />
                             {isSplitOp(op) ? (
                               <p className="truncate text-[10px] text-amber">
                                 também em{" "}
@@ -272,7 +277,7 @@ export function MobileKanban() {
                                 className={cn(
                                   "h-9 rounded-md px-3 text-[11px] font-medium",
                                   selected?.opId === op.id && selected.fromStageId === stage.id
-                                    ? "bg-[#f3f4f6] text-[#0c0d10]"
+                                    ? "bg-btn text-btn-ink"
                                     : "border border-line bg-elevated text-mute",
                                 )}
                                 onClick={() =>

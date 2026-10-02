@@ -138,7 +138,7 @@ function BoardInner() {
   const palette = useMemo(() => kinds, []);
 
   return (
-    <div className="surface flex h-full min-h-0 overflow-hidden rounded-md bg-[#0a0b10]">
+    <div className="surface flex h-full min-h-0 overflow-hidden rounded-md bg-bg">
       {isAdmin ? (
         <div className="hidden w-[196px] shrink-0 overflow-y-auto border-r border-line bg-sidebar/80 p-2 xl:block">
           <div className="mb-2 flex flex-col gap-1">

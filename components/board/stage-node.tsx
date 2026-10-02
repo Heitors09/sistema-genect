@@ -8,6 +8,7 @@ import type { OrdemProducao, StageKind } from "@/lib/types";
 import { nInt } from "@/lib/format";
 import { atadosInStage, isSplitOp, opsInStage, pecasInStage } from "@/lib/op-flow";
 import { useLookups, useStore } from "@/lib/store/store";
+import { familyCardClass, OpFamilyMark } from "../ops/op-family-mark";
 import { cn } from "../ui";
 
 export type StageData = {
@@ -28,7 +29,7 @@ function OpChip({
   canMove: boolean;
 }) {
   const router = useRouter();
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
   const { produto, stage } = useLookups();
   const prod = produto(op.produtoId);
   const pct = Math.min(100, Math.round((op.quantidadeProduzida / Math.max(op.quantidade, 1)) * 100));
@@ -49,7 +50,7 @@ function OpChip({
       }}
       className={cn(
         "nodrag nopan group relative rounded-md border bg-panel/80 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.04)] hover:border-line-strong",
-        split ? "border-amber/35 border-l-2 border-l-amber" : "border-line",
+        familyCardClass(op, state.ops) || (split ? "border-amber/35 border-l-2 border-l-amber" : "border-line"),
       )}
     >
       <button
@@ -60,11 +61,11 @@ function OpChip({
         <div className="flex items-center gap-1.5">
           {canMove ? <GripVertical size={11} className="text-faint" /> : null}
           <span className="font-mono text-[11px] text-ink">{op.numero}</span>
-          {op.parentOpId ? <span className="text-[9px] text-violet">filha</span> : null}
           {split ? <span className="text-[9px] uppercase tracking-wide text-amber">parcial</span> : null}
           <span className="ml-auto text-[10px] tabular-nums text-mute">{pct}%</span>
         </div>
         <p className="truncate text-[11px] text-mute">{prod?.nome}</p>
+        <OpFamilyMark op={op} ops={state.ops} />
         {others.length ? (
           <p className="mt-0.5 truncate text-[10px] text-amber">também em {others.join(" · ")}</p>
         ) : null}

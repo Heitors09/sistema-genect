@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   ClipboardList,
+  GitBranch,
   Hash,
   Search,
   Shirt,
@@ -98,6 +100,17 @@ export function CommandSearch({
       }))
       .filter((hit) => matches(query, hit.title, hit.hint));
 
+    const roteiros: Hit[] = state.roteiros
+      .map((r) => ({
+        id: `rot-${r.id}`,
+        group: "Roteiros",
+        title: r.nome,
+        hint: `${r.etapas.length} etapa${r.etapas.length === 1 ? "" : "s"}`,
+        href: `/roteiros/${r.id}`,
+        icon: GitBranch,
+      }))
+      .filter((hit) => matches(query, hit.title, hit.hint));
+
     const cadastros: Hit[] = [
       ...state.clientes.map((c) => ({
         id: `cli-${c.id}`,
@@ -111,7 +124,7 @@ export function CommandSearch({
         id: `ter-${t.id}`,
         group: "Cadastros",
         title: t.nome,
-        hint: t.especialidade || "Terceirizado",
+        hint: (t.servicos?.map((s) => s.nome).join(" · ") || t.especialidade) || "Terceirizado",
         href: "/terceirizados",
         icon: Users,
       })),
@@ -127,6 +140,7 @@ export function CommandSearch({
           { label: "Ordens de produção", items: ops.slice(0, 6) },
           { label: "Produtos", items: produtos.slice(0, 6) },
           { label: "Insumos", items: insumos.slice(0, 6) },
+          ...(isAdmin ? [{ label: "Roteiros", items: roteiros.slice(0, 6) }] : []),
           ...(isAdmin ? [{ label: "Cadastros", items: cadastros.slice(0, 6) }] : []),
         ];
 
@@ -177,11 +191,11 @@ export function CommandSearch({
 
   let cursor = -1;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-start md:px-3 md:pt-[16vh]">
+  return createPortal(
+    <div className="fixed inset-0 z-[90] flex items-end justify-center md:items-start md:px-3 md:pt-[16vh]">
       <button
         type="button"
-        className="absolute inset-0 bg-black/55 backdrop-blur-[2px]"
+        className="scrim motion-fade-in absolute inset-0 bg-black/55 backdrop-blur-[2px]"
         aria-label="Fechar pesquisa"
         onClick={onClose}
       />
@@ -206,7 +220,7 @@ export function CommandSearch({
           <button
             type="button"
             onClick={onClose}
-            className="motion-press rounded-md px-2 py-1 text-[12px] text-mute hover:bg-white/8 hover:text-ink md:hidden"
+            className="motion-press rounded-md px-2 py-1 text-[12px] text-mute hover:bg-elevated hover:text-ink md:hidden"
           >
             Fechar
           </button>
@@ -238,18 +252,18 @@ export function CommandSearch({
                         className={cn(
                           "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2.5 text-left md:py-2",
                           selected
-                            ? "bg-[#f3f4f6] text-[#0c0d10]"
+                            ? "bg-btn text-btn-ink"
                             : "text-ink hover:bg-elevated/80",
                         )}
                       >
                         <Icon
                           size={15}
-                          className={selected ? "text-[#0c0d10]" : "text-faint"}
+                          className={selected ? "text-btn-ink" : "text-faint"}
                         />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13px] font-medium">{hit.title}</span>
                           {hit.hint ? (
-                            <span className={cn("block truncate text-[11px]", selected ? "text-[#0c0d10]/60" : "text-faint")}>
+                            <span className={cn("block truncate text-[11px]", selected ? "text-btn-ink/60" : "text-faint")}>
                               {hit.hint}
                             </span>
                           ) : null}
@@ -265,7 +279,8 @@ export function CommandSearch({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -280,4 +295,25 @@ export function useSearchHotkey(onOpen: () => void) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onOpen]);
+}
+
+export function SearchTrigger() {
+  const [open, setOpen] = useState(false);
+  const openSearch = useCallback(() => setOpen(true), []);
+  useSearchHotkey(openSearch);
+
+  return (
+    <>
+      <button
+        type="button"
+        className="motion-press grid h-10 w-10 place-items-center rounded-md border border-line text-mute hover:bg-elevated hover:text-ink md:h-8 md:w-8"
+        aria-label="Pesquisar no sistema"
+        title="Pesquisar no sistema"
+        onClick={openSearch}
+      >
+        <Search size={16} strokeWidth={1.75} />
+      </button>
+      <CommandSearch open={open} onClose={() => setOpen(false)} />
+    </>
+  );
 }

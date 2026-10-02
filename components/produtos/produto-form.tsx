@@ -1,16 +1,21 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Trash2 } from "lucide-react";
 import { tipoNegocioLabel, uid } from "@/lib/format";
+import { readFiles } from "@/lib/files";
 import { fichaLinhas } from "@/lib/ficha";
-import type { Produto, StageKind, TipoNegocio } from "@/lib/types";
+import type { Produto, TipoNegocio } from "@/lib/types";
 import { useStore } from "@/lib/store/store";
-import { Button, CreatableSelect, Field, Input, Select, Textarea } from "../ui";
+import { Button, CreatableSelect, Field, FileInput, Input, Select, Textarea } from "../ui";
 
-const kinds: StageKind[] = ["corte", "costura", "faccao", "acabamento", "revisao", "embalagem", "expedicao"];
+function destinoAposSalvar(voltar?: string | null) {
+  if (!voltar || !voltar.startsWith("/") || voltar.startsWith("//")) return "/produtos";
+  return voltar;
+}
 
-export function ProdutoForm({ initial }: { initial?: Produto }) {
+export function ProdutoForm({ initial, voltar }: { initial?: Produto; voltar?: string | null }) {
   const router = useRouter();
   const { state, dispatch, isAdmin } = useStore();
   const [referencia, setReferencia] = useState(initial?.referencia ?? "");
@@ -18,23 +23,83 @@ export function ProdutoForm({ initial }: { initial?: Produto }) {
   const [tipoNegocio, setTipoNegocio] = useState<TipoNegocio>(initial?.tipoNegocio ?? "servico");
   const [categoria, setCategoria] = useState(initial?.categoria ?? "");
   const [linha, setLinha] = useState(initial?.linha ?? "");
-  const [cores, setCores] = useState<string[]>(initial?.cores ?? []);
-  const [corSel, setCorSel] = useState(initial?.cores[0] ?? "");
-  const [tamanhos, setTamanhos] = useState(initial?.tamanhos.join(", ") ?? "");
-  const [insumosSel, setInsumosSel] = useState(initial ? fichaLinhas(initial) : []);
-  const [roteiro, setRoteiro] = useState(initial?.roteiro ?? []);
-  const [custo, setCusto] = useState(initial?.custoEstimado ? String(initial.custoEstimado) : "");
+  const [descricao, setDescricao] = useState(initial?.descricao ?? "");
+  const [tamanhos, setTamanhos] = useState<string[]>(initial?.tamanhos ?? []);
+  const [tamSel, setTamSel] = useState(initial?.tamanhos[0] ?? "");
+  const [variacoes, setVariacoes] = useState(
+    (initial?.variacoes?.length
+      ? initial.variacoes
+      : (initial?.tamanhos ?? []).map((tamanho) => ({ tamanho, cores: initial?.cores ?? [] }))
+    ).map((v) => ({ ...v, id: uid("var") })),
+  );
+  const [insumosSel, setInsumosSel] = useState(
+    (initial ? fichaLinhas(initial) : [{ insumoId: "", consumoPorPeca: 0 }]).map((a) => ({
+      ...a,
+      id: uid("insf"),
+    })),
+  );
   const [preco, setPreco] = useState(initial?.precoVenda ? String(initial.precoVenda) : "");
-  const [fotoHint, setFotoHint] = useState(initial?.fotoHint ?? "");
+  const [imagens, setImagens] = useState<string[]>(initial?.imagens ?? []);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const opcoesTamanho = useMemo(() => {
+    const set = new Set([...state.tamanhosPadrao, ...tamanhos, ...variacoes.map((v) => v.tamanho)]);
+    return [...set].filter(Boolean);
+  }, [state.tamanhosPadrao, tamanhos, variacoes]);
+
+  const paletaCores = useMemo(() => {
+    const set = new Set<string>();
+    for (const v of variacoes) for (const c of v.cores) if (c) set.add(c);
+    return [...set];
+  }, [variacoes]);
+
+  function addTamanho(val: string) {
+    if (!val) return;
+    setTamSel(val);
+    setTamanhos((prev) => (prev.includes(val) ? prev : [...prev, val]));
+    setVariacoes((prev) =>
+      prev.some((v) => v.tamanho === val) ? prev : [...prev, { id: uid("var"), tamanho: val, cores: [] }],
+    );
+  }
+
+  function removeTamanhoChip(val: string) {
+    setTamanhos((prev) => prev.filter((x) => x !== val));
+    setVariacoes((prev) => prev.filter((x) => x.tamanho !== val));
+    if (tamSel === val) setTamSel("");
+  }
+
+  function removeVariacao(id: string) {
+    setVariacoes((prev) => {
+      const next = prev.filter((x) => x.id !== id);
+      setTamanhos([...new Set(next.map((v) => v.tamanho).filter(Boolean))]);
+      return next;
+    });
+  }
+
+  function addVariacao() {
+    setVariacoes((prev) => [...prev, { id: uid("var"), tamanho: tamSel || "", cores: [] }]);
+  }
+
+  function addCor(id: string, cor: string) {
+    const nomeCor = cor.trim();
+    if (!nomeCor) return;
+    setVariacoes((prev) =>
+      prev.map((x) => {
+        if (x.id !== id) return x;
+        if (x.cores.some((c) => c.toLowerCase() === nomeCor.toLowerCase())) return x;
+        return { ...x, cores: [...x.cores, nomeCor] };
+      }),
+    );
+  }
+
+  function removeInsumo(id: string) {
+    setInsumosSel((prev) => prev.filter((x) => x.id !== id));
+  }
 
   function validate() {
     const e: Record<string, string> = {};
     if (!referencia.trim()) e.referencia = "Obrigatório — é o número usado na OP";
     if (!nome.trim()) e.nome = "Obrigatório";
-    if (!cores.length) e.cores = "Adicione ao menos uma cor";
-    const venda = Number(preco);
-    if (!preco.trim() || Number.isNaN(venda) || venda <= 0) e.preco = "Preço de venda obrigatório";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -44,6 +109,8 @@ export function ProdutoForm({ initial }: { initial?: Produto }) {
     if (!isAdmin || !validate()) return;
     const linhas = insumosSel.filter((a) => a.insumoId && a.consumoPorPeca > 0);
     const tecido = linhas.find((l) => state.insumos.find((i) => i.id === l.insumoId)?.categoria === "tecido");
+    const grade = variacoes.filter((v) => v.tamanho);
+    const cores = [...new Set(grade.flatMap((v) => v.cores))];
     const produto: Produto = {
       id: initial?.id ?? uid("prod"),
       referencia: referencia.trim(),
@@ -52,175 +119,243 @@ export function ProdutoForm({ initial }: { initial?: Produto }) {
       categoria: categoria.trim(),
       linha: linha.trim(),
       cores,
-      tamanhos: tamanhos.split(",").map((s) => s.trim()).filter(Boolean),
+      tamanhos: [...new Set(grade.map((v) => v.tamanho))],
+      variacoes: grade.map(({ tamanho, cores: cs }) => ({ tamanho, cores: cs })),
       materiaPrimaId: tecido?.insumoId ?? "",
       consumoTecidoPorPeca: tecido?.consumoPorPeca ?? 0,
-      aviamentos: linhas,
-      roteiro,
-      custoEstimado: Number(custo) || 0,
+      aviamentos: linhas.map(({ insumoId, consumoPorPeca }) => ({ insumoId, consumoPorPeca })),
       precoVenda: Number(preco) || 0,
-      fotoHint,
+      descricao: descricao.trim(),
+      imagens,
     };
     dispatch({ type: "SAVE_PRODUCT", produto });
-    router.push("/produtos");
+    router.push(destinoAposSalvar(voltar));
   }
 
   return (
     <form onSubmit={save} className="grid gap-3">
       <div className="grid gap-3 surface rounded-md p-4 sm:grid-cols-2">
-        <Field label="Número / referência" error={errors.referencia} hint="Aparece no dropdown da OP">
+        <Field label="Número / referência" error={errors.referencia}>
           <Input value={referencia} onChange={(e) => setReferencia(e.target.value)} placeholder="REF-452" required />
         </Field>
         <Field label="Nome do modelo" error={errors.nome}>
           <Input value={nome} onChange={(e) => setNome(e.target.value)} required />
         </Field>
-        <Field
-          label="Modelo de negócio"
-          hint="Serviço é o mais comum: o cliente já manda o material cortado"
-        >
+        <Field label="Modelo de negócio">
           <Select value={tipoNegocio} onChange={(e) => setTipoNegocio(e.target.value as TipoNegocio)}>
             <option value="servico">{tipoNegocioLabel.servico}</option>
             <option value="fabricacao">{tipoNegocioLabel.fabricacao}</option>
           </Select>
         </Field>
         <Field label="Categoria" hint="Opcional">
-          <Input value={categoria} onChange={(e) => setCategoria(e.target.value)} placeholder="Feminino > Vestidos" />
+          <Input value={categoria} onChange={(e) => setCategoria(e.target.value)} />
         </Field>
         <Field label="Coleção" hint="Opcional">
           <Input value={linha} onChange={(e) => setLinha(e.target.value)} />
         </Field>
-        <Field label="Cor" error={errors.cores} hint="Obrigatório. Selecione ou adicione cores">
+        <Field label="Preço de venda" hint="Opcional">
+          <Input type="number" step="0.01" min={0} value={preco} onChange={(e) => setPreco(e.target.value)} />
+        </Field>
+        <Field label="Grade de tamanhos" hint="Lista + espaço para novo">
           <CreatableSelect
-            value={corSel}
-            emptyLabel={cores.length ? "Selecione a cor" : "Nenhuma cor"}
-            options={cores.map((c) => ({ value: c, label: c }))}
-            addLabel="+ Nova cor"
-            addPlaceholder="Ex.: Preto"
-            onChange={setCorSel}
-            onAdd={(nova) => {
-              setCores((prev) => (prev.some((c) => c.toLowerCase() === nova.toLowerCase()) ? prev : [...prev, nova]));
-              setCorSel(nova);
+            value={tamSel}
+            emptyLabel={tamanhos.length ? "Selecione o tamanho" : "Nenhum tamanho"}
+            options={opcoesTamanho.map((t) => ({ value: t, label: t }))}
+            addLabel="+ Novo tamanho"
+            addPlaceholder="Ex.: P"
+            onChange={addTamanho}
+            onAdd={(novo) => {
+              dispatch({ type: "ADD_TAMANHO", tamanho: novo });
+              addTamanho(novo);
             }}
           />
-          {cores.length ? (
+          {tamanhos.length ? (
             <div className="flex flex-wrap gap-1.5">
-              {cores.map((c) => (
+              {tamanhos.map((t) => (
                 <button
-                  key={c}
+                  key={t}
                   type="button"
-                  className="inline-flex h-7 cursor-pointer items-center rounded-md border border-line bg-elevated/80 px-2 text-[11px] text-ink transition-transform duration-150 ease-out active:scale-[0.96]"
-                  onClick={() => {
-                    setCores((prev) => prev.filter((x) => x !== c));
-                    setCorSel((atual) => (atual === c ? "" : atual));
-                  }}
+                  className="h-7 rounded-md border border-line px-2 text-[11px] hover:border-rose hover:text-rose"
+                  onClick={() => removeTamanhoChip(t)}
                 >
-                  {c} ×
+                  {t} ×
                 </button>
               ))}
             </div>
           ) : null}
         </Field>
-        <Field label="Grade de tamanhos" hint="Opcional">
-          <Input value={tamanhos} onChange={(e) => setTamanhos(e.target.value)} placeholder="P, M, G" />
-        </Field>
-        <Field label="Custo estimado" hint="Opcional">
-          <Input type="number" step="0.01" value={custo} onChange={(e) => setCusto(e.target.value)} />
-        </Field>
-        <Field label="Preço de venda" error={errors.preco} hint="Obrigatório — preenche a OP">
-          <Input type="number" step="0.01" min={0} value={preco} onChange={(e) => setPreco(e.target.value)} required />
-        </Field>
         <div className="sm:col-span-2">
-          <Field label="Foto / croqui" hint="Opcional">
-            <Textarea value={fotoHint} onChange={(e) => setFotoHint(e.target.value)} />
+          <Field label="Descrição" hint="Opcional">
+            <Textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} />
+          </Field>
+        </div>
+        <div className="sm:col-span-2">
+          <Field label="Foto do produto" hint="Uma ou mais imagens">
+            <FileInput
+              accept="image/*"
+              multiple
+              emptyLabel="Nenhuma foto"
+              actionLabel="Escolher"
+              onFiles={async (files) => {
+                const urls = await readFiles(files);
+                setImagens((p) => [...p, ...urls]);
+              }}
+            />
+            {imagens.length ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {imagens.map((src, i) => (
+                  <div key={`${src.slice(0, 24)}-${i}`} className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt="" className="h-20 w-20 rounded-md object-cover" />
+                    <button
+                      type="button"
+                      className="absolute -right-1.5 -top-1.5 grid h-6 w-6 place-items-center rounded-full border border-line bg-surface text-faint hover:text-rose"
+                      aria-label="Remover foto"
+                      onClick={() => setImagens((p) => p.filter((_, idx) => idx !== i))}
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </Field>
         </div>
       </div>
 
       <div className="surface rounded-md p-4">
-        <p className="kicker mb-1">Insumos da ficha técnica</p>
+        <p className="kicker mb-1">Variações de estoque</p>
         <p className="mb-3 text-[12px] text-faint">
-          {tipoNegocio === "servico"
-            ? "Opcional. Use só quando a Genect compra algum item (ex.: linha de um cliente). Na maioria dos serviços o cliente já envia tecido, botão, zíper e linha."
-            : "Fabricação: tecido, serviços de fora, linha, zíper e botão para o custo. Pode ficar vazio se ainda não for calcular."}
+          Cada tamanho leva as cores que entram no estoque — ex.: P com preto, azul e branco.
         </p>
-        {insumosSel.length ? (
-          <div className="mb-1 grid grid-cols-[1fr_140px] gap-2 text-[10px] uppercase tracking-wide text-faint">
-            <span>Insumo</span>
-            <span>Consumo / peça</span>
-          </div>
-        ) : null}
-        {insumosSel.map((a, i) => (
-          <div key={`${a.insumoId}-${i}`} className="mb-2 grid grid-cols-[1fr_140px] gap-2">
-            <Select
-              value={a.insumoId}
-              onChange={(e) =>
-                setInsumosSel((prev) => prev.map((x, idx) => (idx === i ? { ...x, insumoId: e.target.value } : x)))
-              }
-            >
-              <option value="">Selecionar insumo</option>
-              {state.insumos.map((ins) => (
-                <option key={ins.id} value={ins.id}>
-                  {ins.codigo} · {ins.descricao}
-                </option>
-              ))}
-            </Select>
-            <Input
-              type="number"
-              step="0.01"
-              value={a.consumoPorPeca}
-              onChange={(e) =>
-                setInsumosSel((prev) =>
-                  prev.map((x, idx) => (idx === i ? { ...x, consumoPorPeca: Number(e.target.value) } : x)),
-                )
-              }
+        {variacoes.map((v) => (
+          <div key={v.id} className="mb-2 grid grid-cols-[minmax(0,140px)_1fr_auto] items-start gap-2">
+            <CreatableSelect
+              value={v.tamanho}
+              emptyLabel="Tamanho"
+              options={opcoesTamanho.map((t) => ({ value: t, label: t }))}
+              addLabel="+ Tamanho"
+              addPlaceholder="P"
+              onChange={(val) => {
+                setVariacoes((prev) => prev.map((x) => (x.id === v.id ? { ...x, tamanho: val } : x)));
+                setTamanhos((prev) => (prev.includes(val) ? prev : [...prev, val]));
+                setTamSel(val);
+              }}
+              onAdd={(novo) => {
+                dispatch({ type: "ADD_TAMANHO", tamanho: novo });
+                setVariacoes((prev) => prev.map((x) => (x.id === v.id ? { ...x, tamanho: novo } : x)));
+                setTamanhos((prev) => (prev.includes(novo) ? prev : [...prev, novo]));
+                setTamSel(novo);
+              }}
             />
+            <div className="min-w-0">
+              <div className="mb-1.5 flex flex-wrap gap-1.5">
+                {v.cores.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className="h-7 rounded-md border border-line px-2 text-[11px] hover:border-rose hover:text-rose"
+                    onClick={() =>
+                      setVariacoes((prev) =>
+                        prev.map((x) => (x.id === v.id ? { ...x, cores: x.cores.filter((cor) => cor !== c) } : x)),
+                      )
+                    }
+                  >
+                    {c} ×
+                  </button>
+                ))}
+              </div>
+              <CreatableSelect
+                value=""
+                emptyLabel="Adicionar cor"
+                options={paletaCores
+                  .filter((c) => !v.cores.some((x) => x.toLowerCase() === c.toLowerCase()))
+                  .map((c) => ({ value: c, label: c }))}
+                addLabel="+ Nova cor"
+                addPlaceholder="Ex.: Preto"
+                onChange={(val) => addCor(v.id, val)}
+                onAdd={(nova) => addCor(v.id, nova)}
+              />
+            </div>
+            <button
+              type="button"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-faint hover:bg-elevated hover:text-rose"
+              aria-label="Remover variação"
+              onClick={() => removeVariacao(v.id)}
+            >
+              <Trash2 size={13} />
+            </button>
           </div>
         ))}
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          onClick={() => setInsumosSel((p) => [...p, { insumoId: "", consumoPorPeca: 1 }])}
-        >
-          Adicionar insumo
+        <Button type="button" size="sm" variant="ghost" onClick={addVariacao}>
+          Adicionar variação
         </Button>
       </div>
 
       <div className="surface rounded-md p-4">
-        <p className="kicker mb-1">Roteiro de produção</p>
-        <p className="mb-3 text-[12px] text-faint">Opcional. Tempo estimado por etapa.</p>
-        {roteiro.map((r, i) => (
-          <div key={r.id} className="mb-2 grid grid-cols-[1fr_140px_90px] gap-2">
-            <Input
-              value={r.nome}
-              onChange={(e) => setRoteiro((p) => p.map((x, idx) => (idx === i ? { ...x, nome: e.target.value } : x)))}
-            />
-            <Select
-              value={r.kind}
-              onChange={(e) =>
-                setRoteiro((p) => p.map((x, idx) => (idx === i ? { ...x, kind: e.target.value as StageKind } : x)))
-              }
-            >
-              {kinds.map((k) => (
-                <option key={k} value={k}>{k}</option>
-              ))}
-            </Select>
-            <Input
-              type="number"
-              value={r.minutos}
-              onChange={(e) =>
-                setRoteiro((p) => p.map((x, idx) => (idx === i ? { ...x, minutos: Number(e.target.value) } : x)))
-              }
-            />
-          </div>
-        ))}
+        <p className="kicker mb-1">Insumos da ficha técnica</p>
+        <p className="mb-3 text-[12px] text-faint">
+          Consumo na unidade cadastrada do insumo. A cor vem preenchida do cadastro dele.
+        </p>
+        {insumosSel.map((a) => {
+          const ins = state.insumos.find((x) => x.id === a.insumoId);
+          const un = ins?.unidadeConsumo ?? "—";
+          return (
+            <div key={a.id} className="mb-2 grid grid-cols-[minmax(0,1fr)_110px_110px_auto] items-center gap-2">
+              <Select
+                value={a.insumoId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setInsumosSel((prev) =>
+                    prev.map((x) =>
+                      x.id === a.id ? { ...x, insumoId: id, consumoPorPeca: x.consumoPorPeca || 1 } : x,
+                    ),
+                  );
+                }}
+              >
+                <option value="">Selecionar insumo</option>
+                {state.insumos.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.codigo} · {item.descricao}
+                  </option>
+                ))}
+              </Select>
+              <div className="flex min-w-0">
+                <Input
+                  type="number"
+                  min={0}
+                  step={ins?.unidadeConsumo === "un" || ins?.unidadeConsumo === "cx" ? 1 : 0.01}
+                  value={a.consumoPorPeca || ""}
+                  onChange={(e) =>
+                    setInsumosSel((prev) =>
+                      prev.map((x) => (x.id === a.id ? { ...x, consumoPorPeca: Number(e.target.value) } : x)),
+                    )
+                  }
+                  className="rounded-r-none"
+                />
+                <span className="well grid min-w-[2.5rem] place-items-center rounded-l-none rounded-r-md border border-l-0 border-line px-2 text-[11px] text-mute">
+                  {un}
+                </span>
+              </div>
+              <Input readOnly value={ins?.cor || "—"} className="cursor-default text-mute" />
+              <button
+                type="button"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-faint hover:bg-elevated hover:text-rose"
+                aria-label="Remover insumo"
+                onClick={() => removeInsumo(a.id)}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          );
+        })}
         <Button
           type="button"
           size="sm"
           variant="ghost"
-          onClick={() => setRoteiro((p) => [...p, { id: uid("r"), nome: "Etapa", kind: "custom", minutos: 5 }])}
+          onClick={() => setInsumosSel((p) => [...p, { id: uid("insf"), insumoId: "", consumoPorPeca: 0 }])}
         >
-          Adicionar etapa
+          Adicionar insumo
         </Button>
       </div>
 

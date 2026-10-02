@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Boxes,
   ClipboardList,
-  Factory,
+  GitBranch,
   LayoutDashboard,
   Package,
   Receipt,
@@ -11,7 +11,7 @@ import {
   Shirt,
   Users,
   Wallet,
-  Warehouse,
+  ShoppingCart,
 } from "lucide-react";
 import type { Role } from "./types";
 
@@ -40,7 +40,7 @@ export const navGroups: NavGroup[] = [
     label: "Produção",
     items: [
       { href: "/ops", label: "Ordens de produção", icon: ClipboardList },
-      { href: "/producao", label: "Chão de fábrica", icon: Factory },
+      { href: "/roteiros", label: "Roteiros", icon: GitBranch },
       { href: "/terceirizados", label: "Terceirizados", icon: Users },
     ],
   },
@@ -54,7 +54,7 @@ export const navGroups: NavGroup[] = [
     label: "Insumos",
     items: [
       { href: "/insumos", label: "Cadastro de insumos", icon: Scissors },
-      { href: "/estoque", label: "Estoque e entradas", icon: Warehouse },
+      { href: "/estoque", label: "Compras", icon: ShoppingCart },
     ],
   },
   {
@@ -90,23 +90,38 @@ export function navItemActive(pathname: string, href: string, hrefs: string[]) {
 }
 
 export function visibleGroups(role: Role) {
-  return navGroups
-    .filter((g) => (role === "admin" ? true : !g.adminOnly))
-    .map((g) => ({
-      ...g,
-      items: g.items.filter((i) => (role === "admin" ? true : !i.adminOnly)),
-    }));
+  if (role === "terceirizado") {
+    return [
+      {
+        id: "producao",
+        label: "Produção",
+        items: [
+          { href: "/ops", label: "Minhas OPs", icon: ClipboardList },
+          { href: "/terceirizados", label: "Financeiro", icon: Wallet },
+        ],
+      },
+      {
+        id: "sistema",
+        label: "Sistema",
+        items: [{ href: "/configuracoes", label: "Configurações", icon: Settings }],
+      },
+    ];
+  }
+  return navGroups.filter((g) => !g.adminOnly || role === "admin");
 }
 
 export function mobileTabs(role: Role): NavItem[] {
-  const extra: NavItem =
-    role === "admin"
-      ? { href: "/financeiro", label: "Caixa", icon: Wallet }
-      : { href: "/terceirizados", label: "Terceiros", icon: Users };
+  if (role === "terceirizado") {
+    return [
+      { href: "/ops", label: "OPs", icon: ClipboardList },
+      { href: "/terceirizados", label: "Financeiro", icon: Wallet },
+      { href: "/configuracoes", label: "Ajustes", icon: Settings },
+    ];
+  }
   return [
     { href: "/", label: "Painel", icon: LayoutDashboard },
     { href: "/ops", label: "OPs", icon: ClipboardList },
-    { href: "/producao", label: "Chão", icon: Factory },
-    extra,
+    { href: "/roteiros", label: "Roteiros", icon: GitBranch },
+    { href: "/financeiro", label: "Caixa", icon: Wallet },
   ];
 }

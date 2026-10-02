@@ -5,26 +5,37 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
+  useRef,
   type Dispatch,
   type ReactNode,
 } from "react";
 import { competenciaAtual, stageColors, todayISO, uid } from "../format";
+import { migrateState, valorServicoTerceirizado, valorServicosOp } from "../migrate";
+import { notifyLive } from "../notif-live";
 import type {
   AppState,
   BoardEdge,
   BoardNode,
+  Cliente,
   ContaPagar,
   ContaReceber,
+  Empresa,
+  Fornecedor,
   Insumo,
+  MicroStatus,
   OrdemProducao,
   OrcamentoDre,
   Produto,
+  ReciboTerceirizado,
+  RoteiroModelo,
   StageKind,
   Terceirizado,
 } from "../types";
-import { linhasReserva } from "../ficha";
+import { consumoEmEstoque, necessidadesOp } from "../ficha";
+import { pecasOpPorSku, resumoPecasSku } from "../estoque-produto";
 import { seed, STORE_KEY } from "./seed";
 
 type Action =
@@ -36,20 +47,37 @@ type Action =
   | { type: "UPDATE_OP_PRODUCTION"; opId: string; produzida: number; perdas: number; refugo: number }
   | { type: "CANCEL_OP"; opId: string }
   | { type: "DELETE_OP"; opId: string }
+  | { type: "SET_OP_FLAGS"; opId: string; urgente?: boolean; prioridade?: boolean }
+  | { type: "MICRO_ACTION"; opId: string; microId: string; status: MicroStatus }
+  | { type: "ADD_PENDENCIA"; opId: string; texto: string; autor: string }
+  | { type: "SAVE_ROTEIRO"; roteiro: RoteiroModelo }
+  | { type: "DELETE_ROTEIRO"; id: string }
   | { type: "SAVE_PRODUCT"; produto: Produto }
   | { type: "ADD_PRODUCT_COLOR"; produtoId: string; cor: string }
+  | { type: "ADD_PRODUCT_SIZE"; produtoId: string; tamanho: string }
   | { type: "SAVE_TERCEIRIZADO"; terceirizado: Terceirizado }
+  | { type: "SAVE_CLIENTE"; cliente: Cliente }
+  | { type: "SAVE_EMPRESA"; empresa: Empresa }
+  | { type: "SAVE_FORNECEDOR"; fornecedor: Fornecedor }
+  | { type: "ADD_CATEGORIA_INSUMO"; categoria: string }
+  | { type: "ADD_TAMANHO"; tamanho: string }
+  | { type: "MARK_NOTIF"; id: string; lida?: boolean }
+  | { type: "MARK_ALL_NOTIF" }
+  | { type: "ADD_RECIBO"; recibo: ReciboTerceirizado }
   | { type: "SAVE_INSUMO"; insumo: Insumo }
   | {
       type: "ENTRADA_LOTE";
       payload: {
         insumoId: string;
-        loteFabricante: string;
+        loteFabricante?: string;
         quantidade: number;
         preco: number;
         nf: string;
+        anexoNf?: string;
         dataEntrada: string;
         fornecedorId: string;
+        refFornecedor?: string;
+        cor?: string;
       };
     }
   | { type: "SET_BOARD"; nodes: BoardNode[]; edges: BoardEdge[] }
@@ -69,16 +97,53 @@ type Action =
   | { type: "GERAR_ACERTO_FACCAO"; opId: string; vencimento: string }
   | { type: "BAIXA_ATADO"; opId: string; atadoId: string };
 
+const PREV_STORE_KEYS = ["genecthub-state-v6", "genecthub-state-v5"];
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+function normalizeStored(raw: AppState): AppState {
+  return migrateState({
+    ...raw,
+    ops: (raw.ops ?? []).map((o) => ({
+      ...o,
+      cor: o.cor ?? "",
+      tipoNegocio: o.tipoNegocio ?? "servico",
+    })),
+    produtos: (raw.produtos ?? []).map((p) => ({
+      ...p,
+      tipoNegocio: p.tipoNegocio ?? "servico",
+    })),
+  } as AppState);
+}
+
+function mergeMissingOps(base: AppState, extras: AppState["ops"]): AppState {
+  const have = new Set(base.ops.map((o) => o.id));
+  const add = extras.filter((o) => !have.has(o.id));
+  return add.length ? { ...base, ops: [...base.ops, ...add] } : base;
+}
+
+function readStored(): AppState | null {
+  if (typeof window === "undefined") return null;
+  for (const key of [STORE_KEY, ...PREV_STORE_KEYS]) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as AppState;
+      if (parsed?.ops && parsed?.boardNodes) return normalizeStored(parsed);
+    } catch {
+      /* ignore corrupt storage */
+    }
+  }
+  return null;
+}
+
 function consumeForOp(state: AppState, op: OrdemProducao, mode: "reserve" | "release") {
-  const produto = state.produtos.find((p) => p.id === op.produtoId);
-  if (!produto) return state;
   const sign = mode === "reserve" ? 1 : -1;
-  const qty = op.quantidade;
+  const needs = necessidadesOp(op, state.produtos);
+  if (!needs.length) return state;
   const insumos = state.insumos.map((ins) => {
-    const extra = linhasReserva(produto, op.tipoNegocio ?? "servico")
-      .filter((l) => l.insumoId === ins.id)
-      .reduce((a, l) => a + l.consumoPorPeca * qty, 0);
-    if (!extra) return ins;
+    const n = needs.find((x) => x.insumoId === ins.id);
+    if (!n) return ins;
+    const extra = consumoEmEstoque(n.qtdConsumo, ins);
     return { ...ins, reservado: Math.max(0, ins.reservado + extra * sign) };
   });
   return { ...state, insumos };
@@ -86,8 +151,11 @@ function consumeForOp(state: AppState, op: OrdemProducao, mode: "reserve" | "rel
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
-    case "HYDRATE":
-      return action.payload;
+    case "HYDRATE": {
+      const incoming = new Set(action.payload.ops.map((o) => o.id));
+      const keep = state.ops.filter((o) => !incoming.has(o.id));
+      return keep.length ? { ...action.payload, ops: [...keep, ...action.payload.ops] } : action.payload;
+    }
     case "SET_USER":
       return { ...state, usuarioId: action.usuarioId };
     case "SAVE_OP": {
@@ -97,22 +165,17 @@ function reducer(state: AppState, action: Action): AppState {
         : { ...state, ops: [action.op, ...state.ops] };
       if (action.isNew) {
         next = consumeForOp(next, action.op, "reserve");
-        next = {
-          ...next,
-          movimentos: [
-            {
-              id: uid("mv"),
-              tipo: "reserva",
-              insumoId: next.produtos.find((p) => p.id === action.op.produtoId)?.materiaPrimaId ?? "",
-              quantidade: action.op.quantidade,
-              opId: action.op.id,
-              data: todayISO(),
-              nota: `Reserva ${action.op.numero}`,
-              loteId: action.op.lotesInsumo[0]?.loteId,
-            },
-            ...next.movimentos,
-          ],
-        };
+        const reservas = necessidadesOp(action.op, next.produtos).map((n) => ({
+          id: uid("mv"),
+          tipo: "reserva" as const,
+          insumoId: n.insumoId,
+          quantidade: n.qtdConsumo,
+          opId: action.op.id,
+          data: todayISO(),
+          nota: `Reserva ${action.op.numero}`,
+          loteId: action.op.lotesInsumo[0]?.loteId,
+        }));
+        next = { ...next, movimentos: [...reservas, ...next.movimentos] };
       }
       return next;
     }
@@ -122,28 +185,32 @@ function reducer(state: AppState, action: Action): AppState {
         ops: state.ops.map((o) => {
           if (o.id !== action.opId) return o;
           const from = action.fromStageId ?? o.stageId;
+          const dest = state.boardNodes.find((n) => n.id === action.stageId);
           const atados = o.atados.length
             ? o.atados.map((a) =>
                 a.status !== "concluido" && a.stageId === from ? { ...a, stageId: action.stageId } : a,
               )
             : o.atados;
-          const open = atados.filter((a) => a.status !== "concluido");
-          const weight = new Map<string, number>();
-          for (const a of open) weight.set(a.stageId, (weight.get(a.stageId) ?? 0) + a.quantidade);
-          const primary =
-            [...weight.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? action.stageId;
           return {
             ...o,
             atados,
-            stageId: atados.length ? primary : action.stageId,
+            stageId: action.stageId,
             status:
-              action.stageId === "st-expedicao"
-                ? "finalizada"
-                : action.stageId === "st-revisao"
-                  ? "revisao"
+              dest?.kind === "revisao"
+                ? "revisao"
+                : dest?.kind === "expedicao"
+                  ? o.status === "cancelada"
+                    ? o.status
+                    : o.status === "aberta"
+                      ? "em_producao"
+                      : o.status === "finalizada"
+                        ? "finalizada"
+                        : o.status
                   : o.status === "aberta"
                     ? "em_producao"
-                    : o.status,
+                    : o.status === "finalizada"
+                      ? "em_producao"
+                      : o.status,
           };
         }),
       };
@@ -163,6 +230,15 @@ function reducer(state: AppState, action: Action): AppState {
         stageId: action.stageId,
         status: "em_producao",
         observacoes: `OP filha de ${parent.numero}. Divisão de lote.`,
+        urgente: parent.urgente,
+        prioridade: parent.prioridade,
+        fotosFicha: parent.fotosFicha ?? [],
+        anexos: parent.anexos ?? [],
+        linhas: parent.linhas ?? [],
+        roteiroId: parent.roteiroId,
+        roteiroNome: parent.roteiroNome,
+        micros: (parent.micros ?? []).map((m) => ({ ...m, id: uid("mic"), quantidade: action.quantidade })),
+        pendencias: [],
         atados: [
           {
             id: uid("at"),
@@ -224,6 +300,172 @@ function reducer(state: AppState, action: Action): AppState {
           : [action.produto, ...state.produtos],
       };
     }
+    case "SET_OP_FLAGS":
+      return {
+        ...state,
+        ops: state.ops.map((o) =>
+          o.id === action.opId
+            ? {
+                ...o,
+                urgente: action.urgente ?? o.urgente,
+                prioridade: action.prioridade ?? o.prioridade,
+              }
+            : o,
+        ),
+      };
+    case "ADD_PENDENCIA":
+      return {
+        ...state,
+        ops: state.ops.map((o) =>
+          o.id === action.opId
+            ? {
+                ...o,
+                pendencias: [
+                  { id: uid("pen"), texto: action.texto, autor: action.autor, createdAt: new Date().toISOString() },
+                  ...o.pendencias,
+                ],
+              }
+            : o,
+        ),
+      };
+    case "SAVE_ROTEIRO": {
+      const exists = state.roteiros.some((r) => r.id === action.roteiro.id);
+      return {
+        ...state,
+        roteiros: exists
+          ? state.roteiros.map((r) => (r.id === action.roteiro.id ? action.roteiro : r))
+          : [action.roteiro, ...state.roteiros],
+      };
+    }
+    case "DELETE_ROTEIRO":
+      return { ...state, roteiros: state.roteiros.filter((r) => r.id !== action.id) };
+    case "MICRO_ACTION": {
+      const op = state.ops.find((o) => o.id === action.opId);
+      if (!op) return state;
+      const now = new Date().toISOString();
+      const micros = op.micros.map((m) => {
+        if (m.id !== action.microId) return m;
+        if (action.status === "em_andamento") return { ...m, status: action.status, iniciadaEm: m.iniciadaEm ?? now };
+        if (action.status === "concluida") return { ...m, status: action.status, concluidaEm: now };
+        return { ...m, status: action.status };
+      });
+      const done = micros.find((m) => m.id === action.microId);
+      const nextMicro = micros.find((m) => m.status === "aguardando");
+      const notificacoes = [...state.notificacoes];
+      if (action.status === "concluida" && nextMicro) {
+        notificacoes.unshift({
+          id: uid("nt"),
+          tipo: "micro_recebido",
+          titulo: `${op.numero} · próxima etapa`,
+          texto: `${done?.nome ?? "Etapa"} concluída. Cobrar ${nextMicro.nome}.`,
+          opId: op.id,
+          lida: false,
+          createdAt: now,
+        });
+      }
+      let contasPagar = state.contasPagar;
+      if (action.status === "concluida" && done?.terceirizadoId) {
+        const t = state.terceirizados.find((x) => x.id === done.terceirizadoId);
+        const valor = done.quantidade * (t ? valorServicoTerceirizado(t, done.servicoId) : op.valorServicoPorPeca);
+        if (valor > 0 && !contasPagar.some((c) => c.origem === "faccao" && c.origemId === `${op.id}:${done.id}`)) {
+          contasPagar = [
+            {
+              id: uid("cp"),
+              empresaId: op.empresaId,
+              descricao: `${t?.nome ?? "Terceirizado"} · ${done.nome} · ${op.numero}`,
+              origem: "faccao",
+              origemId: `${op.id}:${done.id}`,
+              valor,
+              vencimento: todayISO(),
+              competencia: competenciaAtual(),
+              pagamentos: [],
+            },
+            ...contasPagar,
+          ];
+        }
+      }
+      return {
+        ...state,
+        contasPagar,
+        notificacoes,
+        ops: state.ops.map((o) =>
+          o.id === op.id
+            ? {
+                ...o,
+                micros,
+                status:
+                  o.status === "aberta" && (action.status === "em_andamento" || action.status === "concluida")
+                    ? "em_producao"
+                    : o.status,
+                terceirizadoIds: [...new Set(micros.map((m) => m.terceirizadoId).filter(Boolean) as string[])],
+              }
+            : o,
+        ),
+      };
+    }
+    case "SAVE_CLIENTE": {
+      const exists = state.clientes.some((c) => c.id === action.cliente.id);
+      return {
+        ...state,
+        clientes: exists
+          ? state.clientes.map((c) => (c.id === action.cliente.id ? action.cliente : c))
+          : [action.cliente, ...state.clientes],
+      };
+    }
+    case "SAVE_EMPRESA": {
+      const exists = state.empresas.some((c) => c.id === action.empresa.id);
+      return {
+        ...state,
+        empresas: exists
+          ? state.empresas.map((c) => (c.id === action.empresa.id ? action.empresa : c))
+          : [action.empresa, ...state.empresas],
+      };
+    }
+    case "SAVE_FORNECEDOR": {
+      const exists = state.fornecedores.some((c) => c.id === action.fornecedor.id);
+      return {
+        ...state,
+        fornecedores: exists
+          ? state.fornecedores.map((c) => (c.id === action.fornecedor.id ? action.fornecedor : c))
+          : [action.fornecedor, ...state.fornecedores],
+      };
+    }
+    case "ADD_CATEGORIA_INSUMO": {
+      const cat = action.categoria.trim();
+      if (!cat || state.categoriasInsumo.some((c) => c.toLowerCase() === cat.toLowerCase())) return state;
+      return { ...state, categoriasInsumo: [...state.categoriasInsumo, cat] };
+    }
+    case "ADD_TAMANHO": {
+      const tam = action.tamanho.trim();
+      if (!tam || state.tamanhosPadrao.includes(tam)) return state;
+      return { ...state, tamanhosPadrao: [...state.tamanhosPadrao, tam] };
+    }
+    case "ADD_RECIBO":
+      return { ...state, recibos: [action.recibo, ...state.recibos] };
+    case "MARK_NOTIF":
+      return {
+        ...state,
+        notificacoes: state.notificacoes.map((n) =>
+          n.id === action.id ? { ...n, lida: action.lida ?? true } : n,
+        ),
+      };
+    case "MARK_ALL_NOTIF":
+      return { ...state, notificacoes: state.notificacoes.map((n) => ({ ...n, lida: true })) };
+    case "ADD_PRODUCT_SIZE": {
+      const tamanho = action.tamanho.trim();
+      if (!tamanho) return state;
+      return {
+        ...state,
+        produtos: state.produtos.map((p) => {
+          if (p.id !== action.produtoId) return p;
+          if (p.tamanhos.some((t) => t.toLowerCase() === tamanho.toLowerCase())) return p;
+          return { ...p, tamanhos: [...p.tamanhos, tamanho] };
+        }),
+        tamanhosPadrao: state.tamanhosPadrao.includes(tamanho)
+          ? state.tamanhosPadrao
+          : [...state.tamanhosPadrao, tamanho],
+      };
+    }
     case "ADD_PRODUCT_COLOR": {
       const cor = action.cor.trim();
       if (!cor) return state;
@@ -262,7 +504,8 @@ function reducer(state: AppState, action: Action): AppState {
           {
             id: loteId,
             insumoId: action.payload.insumoId,
-            loteFabricante: action.payload.loteFabricante,
+            loteFabricante: action.payload.loteFabricante ?? "",
+            anexoNf: action.payload.anexoNf,
             quantidade: action.payload.quantidade,
             quantidadeRestante: action.payload.quantidade,
             preco: action.payload.preco,
@@ -278,9 +521,9 @@ function reducer(state: AppState, action: Action): AppState {
             ? {
                 ...i,
                 estoqueAtual: i.estoqueAtual + action.payload.quantidade,
-                custoMedio:
-                  (i.custoMedio * i.estoqueAtual + action.payload.preco * action.payload.quantidade) /
-                  (i.estoqueAtual + action.payload.quantidade || 1),
+                fornecedorId: action.payload.fornecedorId || i.fornecedorId,
+                refFornecedor: action.payload.refFornecedor ?? i.refFornecedor,
+                cor: action.payload.cor !== undefined ? action.payload.cor : i.cor,
               }
             : i,
         ),
@@ -293,7 +536,7 @@ function reducer(state: AppState, action: Action): AppState {
             quantidade: action.payload.quantidade,
             data: action.payload.dataEntrada,
             nf: action.payload.nf,
-            nota: `Entrada lote ${action.payload.loteFabricante}`,
+            nota: `Entrada ${action.payload.nf || "sem NF"}`,
           },
           ...state.movimentos,
         ],
@@ -363,14 +606,18 @@ function reducer(state: AppState, action: Action): AppState {
       const op = state.ops.find((o) => o.id === action.opId);
       if (!op) return state;
       if (state.faturamentos.some((f) => f.opId === op.id)) return state;
-      const valor = op.quantidade * op.precoUnitario;
+      const pecas = op.quantidadeProduzida || op.quantidade;
+      const valor = pecas * (op.precoUnitario || 0);
       const crId = uid("cr");
       const fatId = uid("fat");
+      const prod = state.produtos.find((p) => p.id === op.produtoId);
+      const skus = pecasOpPorSku(op);
+      const skuTxt = resumoPecasSku(skus);
       const conta: ContaReceber = {
         id: crId,
         empresaId: op.empresaId,
         clienteId: op.clienteId,
-        descricao: `Faturamento ${op.numero}`,
+        descricao: [`Venda ${prod?.referencia ?? op.numero}`, skuTxt, op.numero].filter(Boolean).join(" · "),
         origem: "faturamento",
         origemId: fatId,
         opId: op.id,
@@ -468,7 +715,7 @@ function reducer(state: AppState, action: Action): AppState {
       if (!op) return state;
       if (state.contasPagar.some((c) => c.origem === "faccao" && c.origemId === op.id)) return state;
       const pecas = op.quantidadeProduzida || op.quantidade;
-      const valor = pecas * op.valorServicoPorPeca;
+      const valor = valorServicosOp(op, state.terceirizados, pecas);
       return {
         ...state,
         contasPagar: [
@@ -519,40 +766,37 @@ const StoreContext = createContext<StoreValue | null>(null);
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, seed);
   const [hydrated, setHydrated] = useReducer(() => true, false);
+  const primedNotifs = useRef(false);
+  const lastNotifId = useRef<string | null>(null);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as AppState;
-        if (parsed?.ops && parsed?.boardNodes) {
-          dispatch({
-            type: "HYDRATE",
-            payload: {
-              ...parsed,
-              ops: parsed.ops.map((o) => ({
-                ...o,
-                cor: o.cor ?? "",
-                tipoNegocio: o.tipoNegocio ?? "servico",
-              })),
-              produtos: (parsed.produtos ?? []).map((p) => ({
-                ...p,
-                tipoNegocio: p.tipoNegocio ?? "servico",
-              })),
-            },
-          });
-        }
-      }
-    } catch {
-      /* ignore corrupt storage */
-    }
+  useIsoLayoutEffect(() => {
+    const stored = readStored();
+    dispatch({ type: "HYDRATE", payload: stored ? mergeMissingOps(stored, seed.ops) : seed });
     setHydrated();
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    } catch {
+      /* quota / private mode */
+    }
   }, [state, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const newest = state.notificacoes[0];
+    if (!primedNotifs.current) {
+      primedNotifs.current = true;
+      lastNotifId.current = newest?.id ?? null;
+      return;
+    }
+    if (newest && newest.id !== lastNotifId.current) {
+      lastNotifId.current = newest.id;
+      notifyLive(newest);
+    }
+  }, [hydrated, state.notificacoes]);
 
   const currentUser = state.usuarios.find((u) => u.id === state.usuarioId) ?? state.usuarios[0];
 

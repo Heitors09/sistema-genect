@@ -18,7 +18,8 @@ export type InsumoCategoria =
   | "ziper"
   | "etiqueta"
   | "embalagem"
-  | "aviamento";
+  | "aviamento"
+  | (string & {});
 
 export type Unidade = "kg" | "m" | "un" | "cx" | "milheiro" | "cone" | "g";
 
@@ -39,15 +40,27 @@ export type OrcamentoStatus = "rascunho" | "aprovado" | "fechado";
 
 export type MovimentoTipo = "entrada" | "reserva" | "baixa" | "liberacao";
 
+export type MicroStatus = "aguardando" | "em_andamento" | "pausada" | "concluida" | "pendencia";
+
 export interface Empresa {
   id: string;
   nome: string;
+  cnpj?: string;
+  razaoSocial?: string;
+  endereco?: string;
+  cidade?: string;
+  uf?: string;
   ativa: boolean;
 }
 
 export interface Cliente {
   id: string;
   nome: string;
+  cnpj?: string;
+  razaoSocial?: string;
+  endereco?: string;
+  cidade?: string;
+  uf?: string;
   ativo: boolean;
 }
 
@@ -55,15 +68,23 @@ export interface Fornecedor {
   id: string;
   razaoSocial: string;
   contato: string;
+  cnpj?: string;
   ativo: boolean;
+}
+
+export interface ServicoTerceirizado {
+  id: string;
+  nome: string;
+  valorPorPeca: number;
 }
 
 export interface Terceirizado {
   id: string;
   nome: string;
-  especialidade: string;
-  valorPorPeca: number;
+  servicos: ServicoTerceirizado[];
   ativo: boolean;
+  especialidade?: string;
+  valorPorPeca?: number;
 }
 
 export interface Usuario {
@@ -78,27 +99,28 @@ export interface Insumo {
   id: string;
   codigo: string;
   descricao: string;
-  categoria: InsumoCategoria;
+  categoria: string;
   unidadeCompra: Unidade;
   unidadeConsumo: Unidade;
   fatorConversao: number;
   estoqueMinimo: number;
-  custoMedio: number;
   estoqueAtual: number;
   reservado: number;
   fornecedorId: string;
   refFornecedor: string;
+  cor?: string;
 }
 
 export interface LoteInsumo {
   id: string;
   insumoId: string;
-  loteFabricante: string;
+  loteFabricante?: string;
   quantidade: number;
   quantidadeRestante: number;
   preco: number;
   unidade: Unidade;
   nf: string;
+  anexoNf?: string;
   dataEntrada: string;
   fornecedorId: string;
 }
@@ -108,11 +130,9 @@ export interface AviamentoFicha {
   consumoPorPeca: number;
 }
 
-export interface RoteiroEtapa {
-  id: string;
-  nome: string;
-  kind: StageKind;
-  minutos: number;
+export interface GradeVariacao {
+  tamanho: string;
+  cores: string[];
 }
 
 export interface Produto {
@@ -124,13 +144,13 @@ export interface Produto {
   linha: string;
   cores: string[];
   tamanhos: string[];
+  variacoes: GradeVariacao[];
   materiaPrimaId: string;
   consumoTecidoPorPeca: number;
   aviamentos: AviamentoFicha[];
-  roteiro: RoteiroEtapa[];
-  custoEstimado: number;
   precoVenda: number;
-  fotoHint: string;
+  descricao?: string;
+  imagens: string[];
 }
 
 export interface Atado {
@@ -145,6 +165,65 @@ export interface Atado {
 export interface LoteOp {
   loteId: string;
   quantidade: number;
+}
+
+export interface OpVariacao {
+  tamanho: string;
+  cor: string;
+  quantidade: number;
+}
+
+export interface OpProdutoLinha {
+  id: string;
+  produtoId: string;
+  quantidade: number;
+  precoUnitario: number;
+  tamanho?: string;
+  variacoes: OpVariacao[];
+}
+
+export interface MicroEtapa {
+  id: string;
+  nome: string;
+  macroId: string;
+  terceirizadoId?: string;
+  servicoId?: string;
+  altGroup?: string;
+  quantidade: number;
+  status: MicroStatus;
+  iniciadaEm?: string;
+  concluidaEm?: string;
+  pendencia?: string;
+}
+
+export interface RoteiroEtapaDef {
+  id: string;
+  nome: string;
+  macroId: string;
+  terceirizado?: boolean;
+  terceirizadoId?: string;
+  servicoId?: string;
+  altGroup?: string;
+}
+
+export interface RoteiroModelo {
+  id: string;
+  nome: string;
+  etapas: RoteiroEtapaDef[];
+}
+
+export interface AnexoOp {
+  id: string;
+  nome: string;
+  tipo: "jpg" | "pdf" | "image";
+  dataUrl: string;
+}
+
+export interface PendenciaOp {
+  id: string;
+  texto: string;
+  autor: string;
+  createdAt: string;
 }
 
 export interface OrdemProducao {
@@ -170,6 +249,15 @@ export interface OrdemProducao {
   status: OpStatus;
   stageId: string;
   createdAt: string;
+  urgente: boolean;
+  prioridade: boolean;
+  fotosFicha: string[];
+  anexos: AnexoOp[];
+  linhas: OpProdutoLinha[];
+  roteiroId?: string;
+  roteiroNome?: string;
+  micros: MicroEtapa[];
+  pendencias: PendenciaOp[];
 }
 
 export interface BoardNode {
@@ -257,6 +345,24 @@ export interface MovimentoEstoque {
   nota?: string;
 }
 
+export interface Notificacao {
+  id: string;
+  tipo: "micro_recebido" | "op_atrasada";
+  titulo: string;
+  texto: string;
+  opId?: string;
+  lida: boolean;
+  createdAt: string;
+}
+
+export interface ReciboTerceirizado {
+  id: string;
+  terceirizadoId: string;
+  competencia: string;
+  nome: string;
+  dataUrl: string;
+}
+
 export interface AppState {
   usuarios: Usuario[];
   usuarioId: string;
@@ -275,4 +381,9 @@ export interface AppState {
   faturamentos: Faturamento[];
   orcamentos: OrcamentoDre[];
   movimentos: MovimentoEstoque[];
+  roteiros: RoteiroModelo[];
+  notificacoes: Notificacao[];
+  recibos: ReciboTerceirizado[];
+  categoriasInsumo: string[];
+  tamanhosPadrao: string[];
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Badge, ButtonLink, DataTable, Input, PageHeader, Select, Td } from "@/components/ui";
 import { brl, formatDate, nInt, produtoLabel, statusOpLabel, tipoNegocioLabel } from "@/lib/format";
+import { OpFamilyMark } from "@/components/ops/op-family-mark";
 import { opStageLabels } from "@/lib/op-flow";
 import { useLookups, useStore } from "@/lib/store/store";
 
@@ -30,7 +31,7 @@ export default function OpsPage() {
       <PageHeader
         kicker="Produção"
         title="Ordens de produção"
-        description="Serviço de costura é o caminho mais comum. Fabricação usa a ficha para reservar insumos e custo."
+        description="Serviço de costura é o caminho mais comum. Fabricação usa a ficha para reservar insumos."
         actions={
           isAdmin ? <ButtonLink href="/ops/nova">Nova OP</ButtonLink> : null
         }
@@ -57,12 +58,14 @@ export default function OpsPage() {
         {rows.map((op) => {
           const prod = produto(op.produtoId);
           return (
-            <tr key={op.id} className="hover:bg-elevated/50">
+            <tr key={op.id}>
               <Td mono>
                 <Link href={`/ops/${op.id}`} className="text-sky hover:underline">
                   {op.numero}
                 </Link>
-                {op.parentOpId ? <span className="ml-1 text-[10px] text-violet">filha</span> : null}
+                {op.urgente ? <span className="ml-1 text-[10px] uppercase text-rose">urgente</span> : null}
+                {op.prioridade ? <span className="ml-1 text-[10px] uppercase text-amber">prio</span> : null}
+                <OpFamilyMark op={op} ops={state.ops} />
                 <p className="mt-0.5 text-[10px] text-faint">{tipoNegocioLabel[op.tipoNegocio]}</p>
               </Td>
               <Td>{formatDate(op.dataEntrada)}</Td>

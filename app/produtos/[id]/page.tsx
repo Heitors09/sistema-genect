@@ -1,9 +1,10 @@
 "use client";
 
-import { use } from "react";
+import { use, useMemo } from "react";
 import { ProdutoForm } from "@/components/produtos/produto-form";
 import { Badge, Card, PageHeader } from "@/components/ui";
-import { brl, categoriaLabel, tipoNegocioLabel } from "@/lib/format";
+import { brl, categoriaLabel, nInt, tipoNegocioLabel } from "@/lib/format";
+import { estoqueDoProduto } from "@/lib/estoque-produto";
 import { fichaLinhas } from "@/lib/ficha";
 import { useLookups, useStore } from "@/lib/store/store";
 
@@ -12,6 +13,8 @@ export default function ProdutoDetailPage({ params }: { params: Promise<{ id: st
   const { state } = useStore();
   const { insumo } = useLookups();
   const produto = state.produtos.find((p) => p.id === id);
+  const faturados = useMemo(() => new Set(state.faturamentos.map((f) => f.opId)), [state.faturamentos]);
+  const estoque = produto ? estoqueDoProduto(produto, state.ops, faturados) : [];
   if (!produto) return <p className="p-6 text-sm text-mute">Produto não encontrado.</p>;
 
   return (
@@ -42,26 +45,39 @@ export default function ProdutoDetailPage({ params }: { params: Promise<{ id: st
                 <li key={a.insumoId}>
                   <span className="text-ink">{ins?.codigo}</span>
                   {" · "}
-                  {ins ? categoriaLabel[ins.categoria] : "Insumo"}
+                  {ins ? categoriaLabel[ins.categoria] ?? ins.categoria : "Insumo"}
                   {" · "}
-                  {a.consumoPorPeca} / peça
+                  {a.consumoPorPeca} {ins?.unidadeConsumo ?? ""}
+                  {ins?.cor ? ` · ${ins.cor}` : ""}
                 </li>
               );
             })}
             {!fichaLinhas(produto).length ? <li>Nenhum insumo cadastrado</li> : null}
           </ul>
-          <p className="mt-3">Custo {brl.format(produto.custoEstimado)} · Venda {brl.format(produto.precoVenda)}</p>
+          <p className="mt-3">{produto.precoVenda ? `Venda ${brl.format(produto.precoVenda)}` : "Preço não informado"}</p>
+          {produto.descricao ? <p className="mt-2 text-mute">{produto.descricao}</p> : null}
         </Card>
         <Card className="p-4 text-[13px]">
-          <p className="kicker">Roteiro</p>
-          <ol className="mt-2 space-y-1">
-            {produto.roteiro.map((r, i) => (
-              <li key={r.id}>
-                {i + 1}. {r.nome} · {r.minutos} min
+          <p className="kicker">Fotos</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {produto.imagens.length
+              ? produto.imagens.map((src) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={src.slice(0, 24)} src={src} alt="" className="h-20 w-20 rounded-md object-cover" />
+                ))
+              : <p className="text-mute">Nenhuma foto</p>}
+          </div>
+          <p className="kicker mt-4">Estoque por variação</p>
+          <p className="mb-2 text-[11px] text-faint">Produzido menos o que já foi faturado (venda).</p>
+          <ul className="mt-1 space-y-1 text-mute">
+            {estoque.map((s) => (
+              <li key={`${s.tamanho}-${s.cor}`} className="flex justify-between gap-3">
+                <span>{[s.tamanho, s.cor].filter(Boolean).join(" · ") || "Sem grade"}</span>
+                <span className="tabular-nums text-ink">{nInt.format(s.saldo)} pç</span>
               </li>
             ))}
-          </ol>
-          <p className="mt-3 text-faint">Croqui: {produto.fotoHint || "sem imagem"}</p>
+            {!estoque.length ? <li>Nenhuma variação</li> : null}
+          </ul>
         </Card>
       </div>
       <ProdutoForm initial={produto} />
