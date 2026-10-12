@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { ProdutoForm } from "@/components/produtos/produto-form";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { brl, categoriaLabel, nInt, tipoNegocioLabel } from "@/lib/format";
@@ -10,6 +11,7 @@ import { useLookups, useStore } from "@/lib/store/store";
 
 export default function ProdutoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const voltar = useSearchParams().get("voltar");
   const { state } = useStore();
   const { insumo } = useLookups();
   const produto = state.produtos.find((p) => p.id === id);
@@ -80,7 +82,7 @@ export default function ProdutoDetailPage({ params }: { params: Promise<{ id: st
           </ul>
         </Card>
       </div>
-      <ProdutoForm initial={produto} />
+      <ProdutoForm initial={produto} voltar={voltar} />
     </div>
   );
 }

@@ -702,6 +702,7 @@ const rawSeed = {
   recibos: [],
   categoriasInsumo: [],
   tamanhosPadrao: [],
+  coresPadrao: [],
 } as unknown as AppState;
 
 const migrated = migrateState(rawSeed);

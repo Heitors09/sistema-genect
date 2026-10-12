@@ -26,11 +26,10 @@ export function ProdutoForm({ initial, voltar }: { initial?: Produto; voltar?: s
   const [descricao, setDescricao] = useState(initial?.descricao ?? "");
   const [tamanhos, setTamanhos] = useState<string[]>(initial?.tamanhos ?? []);
   const [tamSel, setTamSel] = useState(initial?.tamanhos[0] ?? "");
+  const [cores, setCores] = useState<string[]>(initial?.cores ?? []);
+  const [corSel, setCorSel] = useState(initial?.cores[0] ?? "");
   const [variacoes, setVariacoes] = useState(
-    (initial?.variacoes?.length
-      ? initial.variacoes
-      : (initial?.tamanhos ?? []).map((tamanho) => ({ tamanho, cores: initial?.cores ?? [] }))
-    ).map((v) => ({ ...v, id: uid("var") })),
+    (initial?.variacoes ?? []).map((v) => ({ ...v, id: uid("var") })),
   );
   const [insumosSel, setInsumosSel] = useState(
     (initial ? fichaLinhas(initial) : [{ insumoId: "", consumoPorPeca: 0 }]).map((a) => ({
@@ -47,42 +46,50 @@ export function ProdutoForm({ initial, voltar }: { initial?: Produto; voltar?: s
     return [...set].filter(Boolean);
   }, [state.tamanhosPadrao, tamanhos, variacoes]);
 
-  const paletaCores = useMemo(() => {
-    const set = new Set<string>();
+  const opcoesCor = useMemo(() => {
+    const set = new Set<string>([...(state.coresPadrao ?? []), ...cores]);
     for (const v of variacoes) for (const c of v.cores) if (c) set.add(c);
-    return [...set];
-  }, [variacoes]);
+    return [...set].filter(Boolean);
+  }, [state.coresPadrao, cores, variacoes]);
 
   function addTamanho(val: string) {
     if (!val) return;
     setTamSel(val);
     setTamanhos((prev) => (prev.includes(val) ? prev : [...prev, val]));
-    setVariacoes((prev) =>
-      prev.some((v) => v.tamanho === val) ? prev : [...prev, { id: uid("var"), tamanho: val, cores: [] }],
-    );
   }
 
   function removeTamanhoChip(val: string) {
     setTamanhos((prev) => prev.filter((x) => x !== val));
-    setVariacoes((prev) => prev.filter((x) => x.tamanho !== val));
     if (tamSel === val) setTamSel("");
   }
 
+  function addCorProduto(val: string) {
+    const nomeCor = val.trim();
+    if (!nomeCor) return;
+    setCorSel(nomeCor);
+    setCores((prev) => (prev.some((c) => c.toLowerCase() === nomeCor.toLowerCase()) ? prev : [...prev, nomeCor]));
+  }
+
+  function removeCorChip(val: string) {
+    setCores((prev) => prev.filter((x) => x !== val));
+    if (corSel === val) setCorSel("");
+  }
+
   function removeVariacao(id: string) {
-    setVariacoes((prev) => {
-      const next = prev.filter((x) => x.id !== id);
-      setTamanhos([...new Set(next.map((v) => v.tamanho).filter(Boolean))]);
-      return next;
-    });
+    setVariacoes((prev) => prev.filter((x) => x.id !== id));
   }
 
   function addVariacao() {
-    setVariacoes((prev) => [...prev, { id: uid("var"), tamanho: tamSel || "", cores: [] }]);
+    setVariacoes((prev) => [
+      ...prev,
+      { id: uid("var"), tamanho: tamSel || tamanhos[0] || "", cores: [] },
+    ]);
   }
 
   function addCor(id: string, cor: string) {
     const nomeCor = cor.trim();
     if (!nomeCor) return;
+    setCores((prev) => (prev.some((c) => c.toLowerCase() === nomeCor.toLowerCase()) ? prev : [...prev, nomeCor]));
     setVariacoes((prev) =>
       prev.map((x) => {
         if (x.id !== id) return x;
@@ -109,8 +116,11 @@ export function ProdutoForm({ initial, voltar }: { initial?: Produto; voltar?: s
     if (!isAdmin || !validate()) return;
     const linhas = insumosSel.filter((a) => a.insumoId && a.consumoPorPeca > 0);
     const tecido = linhas.find((l) => state.insumos.find((i) => i.id === l.insumoId)?.categoria === "tecido");
-    const grade = variacoes.filter((v) => v.tamanho);
-    const cores = [...new Set(grade.flatMap((v) => v.cores))];
+    const gradeVars = variacoes.filter((v) => v.tamanho);
+    const coresSalvas = [...new Set([...cores, ...gradeVars.flatMap((v) => v.cores)])];
+    const tamanhosSalvos = [
+      ...new Set([...tamanhos, ...gradeVars.map((v) => v.tamanho)].filter(Boolean)),
+    ];
     const produto: Produto = {
       id: initial?.id ?? uid("prod"),
       referencia: referencia.trim(),
@@ -118,9 +128,10 @@ export function ProdutoForm({ initial, voltar }: { initial?: Produto; voltar?: s
       tipoNegocio,
       categoria: categoria.trim(),
       linha: linha.trim(),
-      cores,
-      tamanhos: [...new Set(grade.map((v) => v.tamanho))],
-      variacoes: grade.map(({ tamanho, cores: cs }) => ({ tamanho, cores: cs })),
+      cores: coresSalvas,
+      tamanhos: tamanhosSalvos,
+      // Opcional: só persiste se o usuário montou variações tamanho→cores
+      variacoes: gradeVars.map(({ tamanho, cores: cs }) => ({ tamanho, cores: cs })),
       materiaPrimaId: tecido?.insumoId ?? "",
       consumoTecidoPorPeca: tecido?.consumoPorPeca ?? 0,
       aviamentos: linhas.map(({ insumoId, consumoPorPeca }) => ({ insumoId, consumoPorPeca })),
@@ -156,7 +167,7 @@ export function ProdutoForm({ initial, voltar }: { initial?: Produto; voltar?: s
         <Field label="Preço de venda" hint="Opcional">
           <Input type="number" step="0.01" min={0} value={preco} onChange={(e) => setPreco(e.target.value)} />
         </Field>
-        <Field label="Grade de tamanhos" hint="Lista + espaço para novo">
+        <Field label="Grade de tamanhos" hint="Aparece na OP — lista + espaço para novo">
           <CreatableSelect
             value={tamSel}
             emptyLabel={tamanhos.length ? "Selecione o tamanho" : "Nenhum tamanho"}
@@ -179,6 +190,34 @@ export function ProdutoForm({ initial, voltar }: { initial?: Produto; voltar?: s
                   onClick={() => removeTamanhoChip(t)}
                 >
                   {t} ×
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </Field>
+        <Field label="Cores" hint="Predefinidas + opção de cadastrar">
+          <CreatableSelect
+            value={corSel}
+            emptyLabel={cores.length ? "Selecione a cor" : "Nenhuma cor"}
+            options={opcoesCor.map((c) => ({ value: c, label: c }))}
+            addLabel="+ Nova cor"
+            addPlaceholder="Ex.: Azul Marinho"
+            onChange={addCorProduto}
+            onAdd={(nova) => {
+              dispatch({ type: "ADD_COR", cor: nova });
+              addCorProduto(nova);
+            }}
+          />
+          {cores.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {cores.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className="h-7 rounded-md border border-line px-2 text-[11px] hover:border-rose hover:text-rose"
+                  onClick={() => removeCorChip(c)}
+                >
+                  {c} ×
                 </button>
               ))}
             </div>
@@ -226,30 +265,54 @@ export function ProdutoForm({ initial, voltar }: { initial?: Produto; voltar?: s
       <div className="surface rounded-md p-4">
         <p className="kicker mb-1">Variações de estoque</p>
         <p className="mb-3 text-[12px] text-faint">
-          Cada tamanho leva as cores que entram no estoque — ex.: P com preto, azul e branco.
+          Opcional. Se preencher, a OP usa tamanho×cor (ex.: P com preto e azul). Sem isso, a OP usa só a grade de tamanhos.
         </p>
         {variacoes.map((v) => (
-          <div key={v.id} className="mb-2 grid grid-cols-[minmax(0,140px)_1fr_auto] items-start gap-2">
-            <CreatableSelect
-              value={v.tamanho}
-              emptyLabel="Tamanho"
-              options={opcoesTamanho.map((t) => ({ value: t, label: t }))}
-              addLabel="+ Tamanho"
-              addPlaceholder="P"
-              onChange={(val) => {
-                setVariacoes((prev) => prev.map((x) => (x.id === v.id ? { ...x, tamanho: val } : x)));
-                setTamanhos((prev) => (prev.includes(val) ? prev : [...prev, val]));
-                setTamSel(val);
-              }}
-              onAdd={(novo) => {
-                dispatch({ type: "ADD_TAMANHO", tamanho: novo });
-                setVariacoes((prev) => prev.map((x) => (x.id === v.id ? { ...x, tamanho: novo } : x)));
-                setTamanhos((prev) => (prev.includes(novo) ? prev : [...prev, novo]));
-                setTamSel(novo);
-              }}
-            />
-            <div className="min-w-0">
-              <div className="mb-1.5 flex flex-wrap gap-1.5">
+          <div key={v.id} className="mb-2">
+            <div className="grid grid-cols-[minmax(0,140px)_1fr_auto] items-center gap-2">
+              <CreatableSelect
+                value={v.tamanho}
+                emptyLabel="Tamanho"
+                options={opcoesTamanho.map((t) => ({ value: t, label: t }))}
+                addLabel="+ Tamanho"
+                addPlaceholder="P"
+                onChange={(val) => {
+                  setVariacoes((prev) => prev.map((x) => (x.id === v.id ? { ...x, tamanho: val } : x)));
+                  setTamanhos((prev) => (prev.includes(val) ? prev : [...prev, val]));
+                  setTamSel(val);
+                }}
+                onAdd={(novo) => {
+                  dispatch({ type: "ADD_TAMANHO", tamanho: novo });
+                  setVariacoes((prev) => prev.map((x) => (x.id === v.id ? { ...x, tamanho: novo } : x)));
+                  setTamanhos((prev) => (prev.includes(novo) ? prev : [...prev, novo]));
+                  setTamSel(novo);
+                }}
+              />
+              <CreatableSelect
+                value=""
+                emptyLabel="Adicionar cor"
+                options={opcoesCor
+                  .filter((c) => !v.cores.some((x) => x.toLowerCase() === c.toLowerCase()))
+                  .map((c) => ({ value: c, label: c }))}
+                addLabel="+ Nova cor"
+                addPlaceholder="Ex.: Azul Marinho"
+                onChange={(val) => addCor(v.id, val)}
+                onAdd={(nova) => {
+                  dispatch({ type: "ADD_COR", cor: nova });
+                  addCor(v.id, nova);
+                }}
+              />
+              <button
+                type="button"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-faint hover:bg-elevated hover:text-rose"
+                aria-label="Remover variação"
+                onClick={() => removeVariacao(v.id)}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+            {v.cores.length ? (
+              <div className="mt-1.5 flex flex-wrap gap-1.5 pl-[calc(140px+0.5rem)]">
                 {v.cores.map((c) => (
                   <button
                     key={c}
@@ -265,26 +328,7 @@ export function ProdutoForm({ initial, voltar }: { initial?: Produto; voltar?: s
                   </button>
                 ))}
               </div>
-              <CreatableSelect
-                value=""
-                emptyLabel="Adicionar cor"
-                options={paletaCores
-                  .filter((c) => !v.cores.some((x) => x.toLowerCase() === c.toLowerCase()))
-                  .map((c) => ({ value: c, label: c }))}
-                addLabel="+ Nova cor"
-                addPlaceholder="Ex.: Preto"
-                onChange={(val) => addCor(v.id, val)}
-                onAdd={(nova) => addCor(v.id, nova)}
-              />
-            </div>
-            <button
-              type="button"
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-faint hover:bg-elevated hover:text-rose"
-              aria-label="Remover variação"
-              onClick={() => removeVariacao(v.id)}
-            >
-              <Trash2 size={13} />
-            </button>
+            ) : null}
           </div>
         ))}
         <Button type="button" size="sm" variant="ghost" onClick={addVariacao}>

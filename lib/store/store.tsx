@@ -13,8 +13,16 @@ import {
   type ReactNode,
 } from "react";
 import { competenciaAtual, stageColors, todayISO, uid } from "../format";
-import { migrateState, valorServicoTerceirizado, valorServicosOp } from "../migrate";
+import { migrateState, servicosDe, valorServicoTerceirizado, valorServicosOp } from "../migrate";
 import { notifyLive } from "../notif-live";
+import {
+  arestasFromLinear,
+  ensureOpMicroGraph,
+  proximoPorAresta,
+  ramoFilha,
+  sucessores,
+} from "../roteiro-graph";
+import { resumoMicroCaminho } from "../roteiro-path";
 import type {
   AppState,
   BoardEdge,
@@ -25,11 +33,14 @@ import type {
   Empresa,
   Fornecedor,
   Insumo,
+  MicroEtapa,
   MicroStatus,
+  OpStatus,
   OrdemProducao,
   OrcamentoDre,
   Produto,
   ReciboTerceirizado,
+  RoteiroAresta,
   RoteiroModelo,
   StageKind,
   Terceirizado,
@@ -43,12 +54,53 @@ type Action =
   | { type: "SET_USER"; usuarioId: string }
   | { type: "SAVE_OP"; op: OrdemProducao; isNew: boolean }
   | { type: "MOVE_OP"; opId: string; stageId: string; fromStageId?: string }
-  | { type: "SPLIT_OP"; parentId: string; quantidade: number; terceirizadoId?: string; stageId: string }
+  | {
+      type: "SPLIT_OP";
+      parentId: string;
+      quantidade: number;
+      terceirizadoId?: string;
+      stageId: string;
+      /** Nó onde a filha está no fluxograma. */
+      fromMicroId?: string;
+      /** Caminho da filha (já existente). */
+      nextMicroId?: string;
+      /** Criar card de início da filha. */
+      novoInicio?: {
+        nome: string;
+        macroId: string;
+        terceirizado?: boolean;
+        terceirizadoId?: string;
+        servicoId?: string;
+      };
+      /** Criar card de caminho da filha (pode reunir depois). */
+      novoDestino?: {
+        nome: string;
+        macroId: string;
+        terceirizado?: boolean;
+        terceirizadoId?: string;
+        servicoId?: string;
+        reunirEmId?: string;
+      };
+      /** Destino final (reunião na mãe), quando o caminho já existe. */
+      reunirEmId?: string;
+      /** @deprecated */
+      escolhasAlt?: Record<string, string>;
+    }
   | { type: "UPDATE_OP_PRODUCTION"; opId: string; produzida: number; perdas: number; refugo: number }
   | { type: "CANCEL_OP"; opId: string }
   | { type: "DELETE_OP"; opId: string }
+  | { type: "SET_OP_STATUS"; opId: string; status: OpStatus }
   | { type: "SET_OP_FLAGS"; opId: string; urgente?: boolean; prioridade?: boolean }
   | { type: "MICRO_ACTION"; opId: string; microId: string; status: MicroStatus }
+  | {
+      type: "UPDATE_MICRO";
+      opId: string;
+      microId: string;
+      patch: Partial<Pick<MicroEtapa, "nome" | "macroId" | "terceirizadoId" | "servicoId" | "x" | "y">>;
+    }
+  | { type: "REMOVE_MICRO"; opId: string; microId: string }
+  | { type: "REMOVE_MICRO_ARESTA"; opId: string; arestaId: string }
+  | { type: "ADD_MICRO_ARESTA"; opId: string; aresta: RoteiroAresta }
   | { type: "ADD_PENDENCIA"; opId: string; texto: string; autor: string }
   | { type: "SAVE_ROTEIRO"; roteiro: RoteiroModelo }
   | { type: "DELETE_ROTEIRO"; id: string }
@@ -61,6 +113,7 @@ type Action =
   | { type: "SAVE_FORNECEDOR"; fornecedor: Fornecedor }
   | { type: "ADD_CATEGORIA_INSUMO"; categoria: string }
   | { type: "ADD_TAMANHO"; tamanho: string }
+  | { type: "ADD_COR"; cor: string }
   | { type: "MARK_NOTIF"; id: string; lida?: boolean }
   | { type: "MARK_ALL_NOTIF" }
   | { type: "ADD_RECIBO"; recibo: ReciboTerceirizado }
@@ -217,46 +270,221 @@ function reducer(state: AppState, action: Action): AppState {
     case "SPLIT_OP": {
       const parent = state.ops.find((o) => o.id === action.parentId);
       if (!parent || action.quantidade <= 0 || action.quantidade >= parent.quantidade) return state;
+      let restante = action.quantidade;
+      const atadosPai: typeof parent.atados = [];
+      for (const a of parent.atados) {
+        if (a.status === "concluido" || restante <= 0) {
+          atadosPai.push(a);
+          continue;
+        }
+        if (a.quantidade <= restante) {
+          restante -= a.quantidade;
+          continue;
+        }
+        atadosPai.push({ ...a, quantidade: a.quantidade - restante });
+        restante = 0;
+      }
+      const filhaN = state.ops.filter((o) => o.parentOpId === parent.id).length;
+      let parentMicros = [...(parent.micros ?? [])];
+      let parentArestas = parent.microArestas?.length
+        ? [...parent.microArestas]
+        : arestasFromLinear(parentMicros);
+      let fromMicroId =
+        action.fromMicroId && parentMicros.some((m) => m.id === action.fromMicroId)
+          ? action.fromMicroId
+          : parent.microAtualId ?? parentMicros[0]?.id;
+
+      if (action.novoInicio?.nome.trim() && action.novoInicio.macroId) {
+        const inicioId = uid("mic");
+        parentMicros = [
+          ...parentMicros,
+          {
+            id: inicioId,
+            nome: action.novoInicio.nome.trim(),
+            macroId: action.novoInicio.macroId,
+            quantidade: parent.quantidade,
+            status: "aguardando" as const,
+            terceirizadoId: action.novoInicio.terceirizado
+              ? action.novoInicio.terceirizadoId
+              : undefined,
+            servicoId: action.novoInicio.terceirizado ? action.novoInicio.servicoId : undefined,
+          },
+        ];
+        fromMicroId = inicioId;
+      }
+      if (!fromMicroId) return state;
+
+      let nextId = action.nextMicroId;
+      if (action.novoDestino?.nome.trim() && action.novoDestino.macroId) {
+        const novoId = uid("mic");
+        parentMicros = [
+          ...parentMicros,
+          {
+            id: novoId,
+            nome: action.novoDestino.nome.trim(),
+            macroId: action.novoDestino.macroId,
+            quantidade: parent.quantidade,
+            status: "aguardando" as const,
+            terceirizadoId: action.novoDestino.terceirizado
+              ? action.novoDestino.terceirizadoId
+              : undefined,
+            servicoId: action.novoDestino.terceirizado ? action.novoDestino.servicoId : undefined,
+          },
+        ];
+        parentArestas = [
+          ...parentArestas,
+          {
+            id: uid("rae"),
+            fromId: fromMicroId,
+            toId: novoId,
+            kind: "filha",
+            label: "filha",
+          },
+        ];
+        nextId = novoId;
+      }
+      if (!nextId) {
+        nextId = sucessores(parentArestas, fromMicroId)[0]?.toId ?? fromMicroId;
+      }
+      if (
+        fromMicroId !== nextId &&
+        !parentArestas.some((a) => a.fromId === fromMicroId && a.toId === nextId)
+      ) {
+        parentArestas = [
+          ...parentArestas,
+          {
+            id: uid("rae"),
+            fromId: fromMicroId,
+            toId: nextId,
+            kind: "filha",
+            label: "filha",
+          },
+        ];
+      }
+
+      const reunirEmId =
+        action.novoDestino?.reunirEmId ?? action.reunirEmId;
+      if (
+        reunirEmId &&
+        reunirEmId !== nextId &&
+        reunirEmId !== fromMicroId &&
+        parentMicros.some((m) => m.id === reunirEmId) &&
+        !parentArestas.some((a) => a.fromId === nextId && a.toId === reunirEmId)
+      ) {
+        parentArestas = [
+          ...parentArestas,
+          {
+            id: uid("rae"),
+            fromId: nextId,
+            toId: reunirEmId,
+            kind: "reuniao",
+            label: "reúne",
+          },
+        ];
+      }
+
+      const ramo = ramoFilha(
+        parentMicros.map((m) => m.id),
+        parentArestas,
+        fromMicroId,
+        nextId,
+      );
+      const idMap = new Map<string, string>();
+      const childMicros = ramo.nodes
+        .map((id) => parentMicros.find((m) => m.id === id))
+        .filter(Boolean)
+        .map((m, idx) => {
+          const nid = uid("mic");
+          idMap.set(m!.id, nid);
+          const status = idx === 0 ? ("em_andamento" as const) : ("aguardando" as const);
+          return {
+            ...m!,
+            id: nid,
+            origemMicroId: m!.id,
+            quantidade: action.quantidade,
+            status,
+            iniciadaEm: idx === 0 ? new Date().toISOString() : undefined,
+            concluidaEm: undefined,
+            pendencia: undefined,
+          };
+        });
+      const childArestas = ramo.arestas.map((a) => ({
+        ...a,
+        id: uid("rae"),
+        fromId: idMap.get(a.fromId) ?? a.fromId,
+        toId: idMap.get(a.toId) ?? a.toId,
+      }));
+      const primeiro = childMicros[0];
+      const resumo = resumoMicroCaminho(childMicros);
       const child: OrdemProducao = {
         ...parent,
         id: uid("op"),
-        numero: `${parent.numero}-${String.fromCharCode(65 + state.ops.filter((o) => o.parentOpId === parent.id).length)}`,
+        numero: `${parent.numero}-${String.fromCharCode(65 + filhaN)}`,
         quantidade: action.quantidade,
         quantidadeProduzida: 0,
         perdas: 0,
         refugo: 0,
         parentOpId: parent.id,
-        terceirizadoIds: action.terceirizadoId ? [action.terceirizadoId] : parent.terceirizadoIds,
-        stageId: action.stageId,
+        terceirizadoIds: action.terceirizadoId
+          ? [action.terceirizadoId]
+          : primeiro?.terceirizadoId
+            ? [primeiro.terceirizadoId]
+            : parent.terceirizadoIds,
+        stageId: action.stageId || primeiro?.macroId || parent.stageId,
         status: "em_producao",
-        observacoes: `OP filha de ${parent.numero}. Divisão de lote.`,
+        observacoes: [
+          `OP filha de ${parent.numero}.`,
+          `Fluxo: ${resumo}.`,
+          parent.observacoes?.trim() ? parent.observacoes : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
         urgente: parent.urgente,
         prioridade: parent.prioridade,
         fotosFicha: parent.fotosFicha ?? [],
         anexos: parent.anexos ?? [],
         linhas: parent.linhas ?? [],
         roteiroId: parent.roteiroId,
-        roteiroNome: parent.roteiroNome,
-        micros: (parent.micros ?? []).map((m) => ({ ...m, id: uid("mic"), quantidade: action.quantidade })),
+        roteiroNome: `${parent.roteiroNome ?? "Roteiro"} · ramo ${primeiro?.nome ?? ""}`.trim(),
+        micros: childMicros,
+        microArestas: childArestas,
+        microAtualId: primeiro?.id,
         pendencias: [],
         atados: [
           {
             id: uid("at"),
-            codigo: `AT-${parent.numero.replace("OP-", "")}-F`,
+            codigo: `AT-${parent.numero.replace(/^OP-/, "")}-${String.fromCharCode(65 + filhaN)}1`,
             quantidade: action.quantidade,
-            terceirizadoId: action.terceirizadoId,
-            stageId: action.stageId,
+            terceirizadoId: action.terceirizadoId ?? primeiro?.terceirizadoId,
+            stageId: action.stageId || primeiro?.macroId || parent.stageId,
             status: "em_setor",
           },
         ],
         createdAt: new Date().toISOString(),
       };
+      const parentGraph = ensureOpMicroGraph({
+        micros: parentMicros.map((m) =>
+          m.id === fromMicroId || !action.novoDestino ? m : m,
+        ),
+        microArestas: parentArestas,
+        microAtualId: parent.microAtualId,
+      });
       return {
         ...state,
         ops: [
           child,
           ...state.ops.map((o) =>
-            o.id === parent.id ? { ...o, quantidade: o.quantidade - action.quantidade } : o,
+            o.id === parent.id
+              ? {
+                  ...o,
+                  quantidade: o.quantidade - action.quantidade,
+                  atados: atadosPai,
+                  micros: parentGraph.micros,
+                  microArestas: parentGraph.microArestas,
+                  microAtualId: parentGraph.microAtualId,
+                  roteiroNome: o.roteiroNome,
+                }
+              : o,
           ),
         ],
       };
@@ -284,6 +512,18 @@ function reducer(state: AppState, action: Action): AppState {
         ops: next.ops.map((o) => (o.id === op.id ? { ...o, status: "cancelada" } : o)),
       };
       return next;
+    }
+    case "SET_OP_STATUS": {
+      const op = state.ops.find((o) => o.id === action.opId);
+      if (!op || op.status === action.status) return state;
+      if (action.status === "cancelada") {
+        return reducer(state, { type: "CANCEL_OP", opId: action.opId });
+      }
+      if (op.status === "cancelada") return state;
+      return {
+        ...state,
+        ops: state.ops.map((o) => (o.id === action.opId ? { ...o, status: action.status } : o)),
+      };
     }
     case "DELETE_OP": {
       const op = state.ops.find((o) => o.id === action.opId);
@@ -343,14 +583,50 @@ function reducer(state: AppState, action: Action): AppState {
       const op = state.ops.find((o) => o.id === action.opId);
       if (!op) return state;
       const now = new Date().toISOString();
-      const micros = op.micros.map((m) => {
+      const doneIdx = op.micros.findIndex((m) => m.id === action.microId);
+      const doneOrig = op.micros[doneIdx];
+      let micros = op.micros.map((m) => {
         if (m.id !== action.microId) return m;
         if (action.status === "em_andamento") return { ...m, status: action.status, iniciadaEm: m.iniciadaEm ?? now };
         if (action.status === "concluida") return { ...m, status: action.status, concluidaEm: now };
         return { ...m, status: action.status };
       });
+      if (action.status === "concluida" && doneOrig?.altGroup) {
+        micros = micros.map((m) =>
+          m.id !== action.microId && m.altGroup === doneOrig.altGroup && m.status !== "concluida"
+            ? { ...m, status: "concluida" as const, concluidaEm: now }
+            : m,
+        );
+      }
       const done = micros.find((m) => m.id === action.microId);
-      const nextMicro = micros.find((m) => m.status === "aguardando");
+      const arestas = op.microArestas?.length ? op.microArestas : arestasFromLinear(micros);
+      let nextMicro =
+        action.status === "concluida" && done
+          ? proximoPorAresta(micros, arestas, done.id)
+          : undefined;
+      if (action.status === "concluida" && nextMicro) {
+        const nextId = nextMicro.id;
+        micros = micros.map((m) =>
+          m.id === nextId ? { ...m, status: "em_andamento" as const, iniciadaEm: m.iniciadaEm ?? now } : m,
+        );
+        nextMicro = micros.find((m) => m.id === nextId);
+      }
+      const microAtualId =
+        action.status === "em_andamento"
+          ? action.microId
+          : action.status === "concluida"
+            ? (nextMicro?.id ?? action.microId)
+            : op.microAtualId;
+      // Kanban segue o macroId configurado na micro (roteiro), nunca a ordem visual do quadro.
+      const destinStageId =
+        action.status === "em_andamento" && doneOrig?.macroId
+          ? doneOrig.macroId
+          : action.status === "concluida"
+            ? (nextMicro?.macroId ?? done?.macroId ?? op.stageId)
+            : op.stageId;
+      const atados = op.atados.map((a) =>
+        a.status !== "concluido" ? { ...a, stageId: destinStageId } : a,
+      );
       const notificacoes = [...state.notificacoes];
       if (action.status === "concluida" && nextMicro) {
         notificacoes.unshift({
@@ -384,6 +660,15 @@ function reducer(state: AppState, action: Action): AppState {
           ];
         }
       }
+      const destNode = state.boardNodes.find((n) => n.id === destinStageId);
+      let nextStatus = op.status;
+      if (op.status === "aberta" && (action.status === "em_andamento" || action.status === "concluida")) {
+        nextStatus = "em_producao";
+      }
+      if (action.status === "concluida" && destNode?.kind === "revisao") nextStatus = "revisao";
+      if (action.status === "concluida" && !nextMicro && destNode?.kind === "expedicao") {
+        nextStatus = op.status === "cancelada" ? op.status : "em_producao";
+      }
       return {
         ...state,
         contasPagar,
@@ -393,14 +678,224 @@ function reducer(state: AppState, action: Action): AppState {
             ? {
                 ...o,
                 micros,
-                status:
-                  o.status === "aberta" && (action.status === "em_andamento" || action.status === "concluida")
-                    ? "em_producao"
-                    : o.status,
+                microArestas: arestas,
+                microAtualId,
+                atados,
+                stageId: destinStageId,
+                status: nextStatus,
                 terceirizadoIds: [...new Set(micros.map((m) => m.terceirizadoId).filter(Boolean) as string[])],
               }
             : o,
         ),
+      };
+    }
+    case "UPDATE_MICRO": {
+      const op = state.ops.find((o) => o.id === action.opId);
+      if (!op) return state;
+      const micros = op.micros.map((m) => {
+        if (m.id !== action.microId) return m;
+        const next = { ...m, ...action.patch };
+        if ("terceirizadoId" in action.patch && !action.patch.terceirizadoId) {
+          next.terceirizadoId = undefined;
+          next.servicoId = undefined;
+        }
+        const t = next.terceirizadoId
+          ? state.terceirizados.find((x) => x.id === next.terceirizadoId)
+          : undefined;
+        const svc = t && next.servicoId ? servicosDe(t).find((s) => s.id === next.servicoId) : undefined;
+        if (action.patch.nome === undefined) {
+          if (t && svc) next.nome = `${svc.nome} · ${t.nome}`;
+          else if (t) next.nome = t.nome;
+          else if (action.patch.macroId || ("terceirizadoId" in action.patch && !t)) {
+            next.nome = state.boardNodes.find((n) => n.id === next.macroId)?.label ?? next.nome;
+          }
+        }
+        return next;
+      });
+      const patched = micros.find((m) => m.id === action.microId);
+      const atados =
+        patched?.macroId && patched.macroId !== op.stageId && op.microAtualId === action.microId
+          ? op.atados.map((a) =>
+              a.status !== "concluido" && a.stageId === op.stageId
+                ? { ...a, stageId: patched.macroId }
+                : a,
+            )
+          : op.atados;
+      const syncPatch = (m: MicroEtapa): MicroEtapa => {
+        if (m.origemMicroId !== action.microId) return m;
+        const next = { ...m, ...action.patch };
+        if ("terceirizadoId" in action.patch && !action.patch.terceirizadoId) {
+          next.terceirizadoId = undefined;
+          next.servicoId = undefined;
+        }
+        if (action.patch.nome === undefined && patched) {
+          next.nome = patched.nome;
+          next.macroId = patched.macroId;
+          next.terceirizadoId = patched.terceirizadoId;
+          next.servicoId = patched.servicoId;
+        }
+        return next;
+      };
+      return {
+        ...state,
+        ops: state.ops.map((o) => {
+          if (o.id === action.opId) {
+            return {
+              ...o,
+              micros,
+              atados,
+              stageId:
+                o.microAtualId === action.microId && patched?.macroId
+                  ? patched.macroId
+                  : o.stageId,
+              terceirizadoIds: [
+                ...new Set(micros.map((m) => m.terceirizadoId).filter(Boolean) as string[]),
+              ],
+            };
+          }
+          if (o.parentOpId === action.opId) {
+            const childMicros = o.micros.map(syncPatch);
+            return {
+              ...o,
+              micros: childMicros,
+              terceirizadoIds: [
+                ...new Set(childMicros.map((m) => m.terceirizadoId).filter(Boolean) as string[]),
+              ],
+            };
+          }
+          return o;
+        }),
+      };
+    }
+    case "REMOVE_MICRO": {
+      const op = state.ops.find((o) => o.id === action.opId);
+      if (!op || op.micros.length <= 1) return state;
+      if (!op.micros.some((m) => m.id === action.microId)) return state;
+      const micros = op.micros.filter((m) => m.id !== action.microId);
+      const prevArestas = op.microArestas?.length
+        ? op.microArestas
+        : arestasFromLinear(op.micros);
+      const microArestas = prevArestas.filter(
+        (a) => a.fromId !== action.microId && a.toId !== action.microId,
+      );
+      const microAtualId =
+        op.microAtualId === action.microId
+          ? micros.find((m) => m.status === "em_andamento")?.id ?? micros[0]?.id
+          : op.microAtualId && micros.some((m) => m.id === op.microAtualId)
+            ? op.microAtualId
+            : micros[0]?.id;
+      const atual = micros.find((m) => m.id === microAtualId);
+      return {
+        ...state,
+        ops: state.ops.map((o) => {
+          if (o.id === action.opId) {
+            return {
+              ...o,
+              micros,
+              microArestas,
+              microAtualId,
+              stageId: atual?.macroId ?? o.stageId,
+              terceirizadoIds: [
+                ...new Set(micros.map((m) => m.terceirizadoId).filter(Boolean) as string[]),
+              ],
+            };
+          }
+          if (o.parentOpId === action.opId) {
+            const removed = o.micros.filter((m) => m.origemMicroId === action.microId);
+            if (!removed.length || o.micros.length - removed.length < 1) return o;
+            const removedIds = new Set(removed.map((m) => m.id));
+            const childMicros = o.micros.filter((m) => !removedIds.has(m.id));
+            const childArestas = (o.microArestas ?? []).filter(
+              (a) => !removedIds.has(a.fromId) && !removedIds.has(a.toId),
+            );
+            const childAtual =
+              o.microAtualId && !removedIds.has(o.microAtualId)
+                ? o.microAtualId
+                : childMicros.find((m) => m.status === "em_andamento")?.id ?? childMicros[0]?.id;
+            return {
+              ...o,
+              micros: childMicros,
+              microArestas: childArestas,
+              microAtualId: childAtual,
+              stageId: childMicros.find((m) => m.id === childAtual)?.macroId ?? o.stageId,
+            };
+          }
+          return o;
+        }),
+      };
+    }
+    case "REMOVE_MICRO_ARESTA": {
+      const op = state.ops.find((o) => o.id === action.opId);
+      if (!op) return state;
+      const prevArestas = op.microArestas?.length
+        ? op.microArestas
+        : arestasFromLinear(op.micros);
+      const removed = prevArestas.find((a) => a.id === action.arestaId);
+      if (!removed) return state;
+      return {
+        ...state,
+        ops: state.ops.map((o) => {
+          if (o.id === action.opId) {
+            return {
+              ...o,
+              microArestas: prevArestas.filter((a) => a.id !== action.arestaId),
+            };
+          }
+          if (o.parentOpId === action.opId) {
+            const fromC = o.micros.find((m) => m.origemMicroId === removed.fromId);
+            const toC = o.micros.find((m) => m.origemMicroId === removed.toId);
+            if (!fromC || !toC || !o.microArestas?.length) return o;
+            return {
+              ...o,
+              microArestas: o.microArestas.filter(
+                (a) => !(a.fromId === fromC.id && a.toId === toC.id),
+              ),
+            };
+          }
+          return o;
+        }),
+      };
+    }
+    case "ADD_MICRO_ARESTA": {
+      const op = state.ops.find((o) => o.id === action.opId);
+      if (!op) return state;
+      const prevArestas = op.microArestas?.length
+        ? op.microArestas
+        : arestasFromLinear(op.micros);
+      if (
+        prevArestas.some(
+          (a) => a.fromId === action.aresta.fromId && a.toId === action.aresta.toId,
+        )
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        ops: state.ops.map((o) => {
+          if (o.id === action.opId) {
+            return { ...o, microArestas: [...prevArestas, action.aresta] };
+          }
+          if (o.parentOpId === action.opId) {
+            const fromC = o.micros.find((m) => m.origemMicroId === action.aresta.fromId);
+            const toC = o.micros.find((m) => m.origemMicroId === action.aresta.toId);
+            if (!fromC || !toC) return o;
+            const childEdges = o.microArestas ?? [];
+            if (childEdges.some((a) => a.fromId === fromC.id && a.toId === toC.id)) return o;
+            return {
+              ...o,
+              microArestas: [
+                ...childEdges,
+                {
+                  ...action.aresta,
+                  id: uid("rae"),
+                  fromId: fromC.id,
+                  toId: toC.id,
+                },
+              ],
+            };
+          }
+          return o;
+        }),
       };
     }
     case "SAVE_CLIENTE": {
@@ -440,6 +935,12 @@ function reducer(state: AppState, action: Action): AppState {
       if (!tam || state.tamanhosPadrao.includes(tam)) return state;
       return { ...state, tamanhosPadrao: [...state.tamanhosPadrao, tam] };
     }
+    case "ADD_COR": {
+      const cor = action.cor.trim();
+      const atuais = state.coresPadrao ?? [];
+      if (!cor || atuais.some((c) => c.toLowerCase() === cor.toLowerCase())) return state;
+      return { ...state, coresPadrao: [...atuais, cor] };
+    }
     case "ADD_RECIBO":
       return { ...state, recibos: [action.recibo, ...state.recibos] };
     case "MARK_NOTIF":
@@ -469,6 +970,7 @@ function reducer(state: AppState, action: Action): AppState {
     case "ADD_PRODUCT_COLOR": {
       const cor = action.cor.trim();
       if (!cor) return state;
+      const lista = state.coresPadrao ?? [];
       return {
         ...state,
         produtos: state.produtos.map((p) => {
@@ -476,6 +978,7 @@ function reducer(state: AppState, action: Action): AppState {
           if (p.cores.some((c) => c.toLowerCase() === cor.toLowerCase())) return p;
           return { ...p, cores: [...p.cores, cor] };
         }),
+        coresPadrao: lista.some((c) => c.toLowerCase() === cor.toLowerCase()) ? lista : [...lista, cor],
       };
     }
     case "SAVE_TERCEIRIZADO": {

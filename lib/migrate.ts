@@ -1,5 +1,6 @@
 import { stageColors, uid } from "./format";
 import { MACRO_STAGES, opAtrasada } from "./prazos";
+import { ensureOpMicroGraph, ensureRoteiroGraph, microsComGrafo } from "./roteiro-graph";
 import type {
   AppState,
   MicroEtapa,
@@ -10,7 +11,7 @@ import type {
   Terceirizado,
 } from "./types";
 
-export const ROTEIRO_PADRAO: RoteiroModelo = {
+export const ROTEIRO_PADRAO: RoteiroModelo = ensureRoteiroGraph({
   id: "rot-padrao",
   nome: "Padrão confecção",
   etapas: [
@@ -22,20 +23,32 @@ export const ROTEIRO_PADRAO: RoteiroModelo = {
     { id: "rp-6", nome: "Revisão", macroId: "st-revisao" },
     { id: "rp-7", nome: "Expedição", macroId: "st-expedicao" },
   ],
-};
+});
 
-export const ROTEIRO_JEANS: RoteiroModelo = {
+/** Exemplo com bifurcação: montagem interna ou facção, reúnem na lavanderia. */
+export const ROTEIRO_JEANS: RoteiroModelo = ensureRoteiroGraph({
   id: "rot-jeans",
   nome: "Calça / jeans",
   etapas: [
     { id: "rj-1", nome: "Recebimento do tecido", macroId: "st-recebimento" },
     { id: "rj-2", nome: "Corte", macroId: "st-corte" },
-    { id: "rj-3", nome: "Montagem", macroId: "st-costura", terceirizado: true },
+    { id: "rj-3a", nome: "Montagem interna", macroId: "st-costura" },
+    { id: "rj-3b", nome: "Montagem facção", macroId: "st-costura", terceirizado: true },
     { id: "rj-4", nome: "Lavanderia", macroId: "st-acabamento", terceirizado: true },
     { id: "rj-5", nome: "Revisão", macroId: "st-revisao" },
     { id: "rj-6", nome: "Expedição", macroId: "st-expedicao" },
   ],
-};
+  arestas: [
+    { id: "rje-1", fromId: "rj-1", toId: "rj-2", kind: "sequencia" },
+    { id: "rje-2", fromId: "rj-2", toId: "rj-3a", kind: "bifurcacao", label: "interno" },
+    { id: "rje-3", fromId: "rj-2", toId: "rj-3b", kind: "filha", label: "filha" },
+    { id: "rje-4", fromId: "rj-3a", toId: "rj-4", kind: "reuniao" },
+    { id: "rje-5", fromId: "rj-3b", toId: "rj-4", kind: "reuniao", label: "reúne" },
+    { id: "rje-6", fromId: "rj-4", toId: "rj-5", kind: "sequencia" },
+    { id: "rje-7", fromId: "rj-5", toId: "rj-6", kind: "sequencia" },
+  ],
+  inicioId: "rj-1",
+});
 
 export function servicosDe(t: Terceirizado): ServicoTerceirizado[] {
   if (t.servicos?.length) return t.servicos;
@@ -135,17 +148,8 @@ export function microsFromRoteiro(
   terceirizadoId?: string,
   servicoId?: string,
 ): MicroEtapa[] {
-  return roteiro.etapas.map((etapa, index) => ({
-    id: uid("mic"),
-    nome: etapa.nome,
-    macroId: etapa.macroId,
-    quantidade,
-    status: index === 0 ? "em_andamento" : "aguardando",
-    iniciadaEm: index === 0 ? new Date().toISOString() : undefined,
-    terceirizadoId: etapa.terceirizado ? (etapa.terceirizadoId ?? terceirizadoId) : undefined,
-    servicoId: etapa.terceirizado ? (etapa.servicoId ?? servicoId) : undefined,
-    altGroup: etapa.altGroup,
-  }));
+  const g = ensureRoteiroGraph(roteiro);
+  return microsComGrafo(g.etapas, g.arestas, quantidade, { terceirizadoId, servicoId }).micros;
 }
 
 export function valorServicosOp(op: OrdemProducao, terceirizados: Terceirizado[], pecas?: number) {
@@ -173,7 +177,9 @@ function mapLegacyStage(id: string) {
 }
 
 export function migrateState(raw: AppState): AppState {
-  const roteiros = raw.roteiros?.length ? raw.roteiros : [ROTEIRO_PADRAO, ROTEIRO_JEANS];
+  const roteiros = (raw.roteiros?.length ? raw.roteiros : [ROTEIRO_PADRAO, ROTEIRO_JEANS]).map((r) =>
+    ensureRoteiroGraph(r),
+  );
   const padrao = roteiros[0] ?? ROTEIRO_PADRAO;
 
   const terceirizados = (raw.terceirizados ?? []).map((t) => {
@@ -220,12 +226,17 @@ export function migrateState(raw: AppState): AppState {
     const stageId = mapLegacyStage(op.stageId);
     const terceirizadoId = op.terceirizadoIds[0];
     const t = terceirizados.find((x) => x.id === terceirizadoId);
-    const micros =
+    const microsRaw =
       op.micros?.length
         ? op.micros.map((m) => ({ ...m, macroId: mapLegacyStage(m.macroId) }))
         : microsFromRoteiro(padrao, op.quantidade, terceirizadoId, t?.servicos[0]?.id).map((m) =>
             m.macroId === stageId ? { ...m, status: "em_andamento" as const } : m,
           );
+    const graph = ensureOpMicroGraph({
+      micros: microsRaw,
+      microArestas: op.microArestas,
+      microAtualId: op.microAtualId,
+    });
     const produto = produtos.find((p) => p.id === op.produtoId);
     return {
       ...op,
@@ -251,7 +262,9 @@ export function migrateState(raw: AppState): AppState {
             ],
       roteiroId: op.roteiroId ?? padrao.id,
       roteiroNome: op.roteiroNome ?? padrao.nome,
-      micros,
+      micros: graph.micros,
+      microArestas: graph.microArestas,
+      microAtualId: graph.microAtualId,
       pendencias: op.pendencias ?? [],
     };
   });
@@ -323,6 +336,13 @@ export function migrateState(raw: AppState): AppState {
     tamanhosPadrao: raw.tamanhosPadrao?.length
       ? raw.tamanhosPadrao
       : ["PP", "P", "M", "G", "GG", "XGG", "38", "40", "42", "44", "46"],
+    coresPadrao: (() => {
+      const padrao = ["Azul Marinho", "Azul Royal", "Indigo", "Laranja", "Caqui", "Verde", "Branco"];
+      const existentes = raw.coresPadrao ?? [];
+      if (!existentes.length) return padrao;
+      const have = new Set(existentes.map((c) => c.toLowerCase()));
+      return [...existentes, ...padrao.filter((c) => !have.has(c.toLowerCase()))];
+    })(),
     insumos: (raw.insumos ?? []).map((i) => {
       const { custoMedio: _custo, ...rest } = i as typeof i & { custoMedio?: number };
       return {

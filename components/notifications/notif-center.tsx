@@ -20,6 +20,16 @@ function tipoMeta(tipo: Notificacao["tipo"]) {
       Icon: Clock3,
       accent: "bg-rose/80",
       iconWrap: "bg-rose/12 text-rose",
+      bar: "bg-rose/70",
+    };
+  }
+  if (tipo === "estoque_insuficiente") {
+    return {
+      label: "Estoque",
+      Icon: Package,
+      accent: "bg-rose/80",
+      iconWrap: "bg-rose/12 text-rose",
+      bar: "bg-rose/70",
     };
   }
   return {
@@ -27,6 +37,7 @@ function tipoMeta(tipo: Notificacao["tipo"]) {
     Icon: CircleDot,
     accent: "bg-sky/80",
     iconWrap: "bg-sky/12 text-sky",
+    bar: "bg-sky/70",
   };
 }
 
@@ -284,7 +295,8 @@ function ToastCard({ n, onDismiss }: { n: Notificacao; onDismiss: () => void }) 
   const done = useRef(onDismiss);
   done.current = onDismiss;
   const meta = tipoMeta(n.tipo);
-  const Icon = n.tipo === "op_atrasada" ? AlertTriangle : meta.Icon;
+  const Icon =
+    n.tipo === "op_atrasada" || n.tipo === "estoque_insuficiente" ? AlertTriangle : meta.Icon;
 
   useEffect(() => {
     const fade = window.setTimeout(() => setLeaving(true), 5200);
@@ -331,7 +343,7 @@ function ToastCard({ n, onDismiss }: { n: Notificacao; onDismiss: () => void }) 
           <X size={13} />
         </button>
       </div>
-      {leaving ? null : <span className="notif-toast-bar block h-0.5 w-full bg-sky/70" />}
+      {leaving ? null : <span className={cn("notif-toast-bar block h-0.5 w-full", meta.bar)} />}
     </output>
   );
 }

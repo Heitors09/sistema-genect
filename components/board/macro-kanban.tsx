@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { microStatusLabel, nInt, stageKindLabel } from "@/lib/format";
 import { servicosDe } from "@/lib/migrate";
-import { sortFamilyFirst } from "@/lib/op-flow";
+import { isSplitOp, opsInStage, pecasInStage, sortFamilyFirst } from "@/lib/op-flow";
 import { opAtrasada } from "@/lib/prazos";
 import type { MicroEtapa, MicroStatus, OrdemProducao, StageKind } from "@/lib/types";
 import { newStage, useLookups, useStore } from "@/lib/store/store";
@@ -141,9 +141,11 @@ function MicroBlock({
 export function MacroKanban({
   filtro,
   terceirizadoId,
+  busca = "",
 }: {
   filtro: PainelFiltro;
   terceirizadoId?: string;
+  busca?: string;
 }) {
   const { state, dispatch, isAdmin } = useStore();
   const { produto, cliente } = useLookups();
@@ -163,6 +165,7 @@ export function MacroKanban({
   );
 
   const ops = useMemo(() => {
+    const q = busca.trim().toLowerCase();
     return state.ops.filter((op) => {
       if (!matchesFiltro(op, filtro)) return false;
       if (
@@ -172,9 +175,15 @@ export function MacroKanban({
       ) {
         return false;
       }
+      if (q) {
+        const prod = produto(op.produtoId);
+        const cli = cliente(op.clienteId);
+        const blob = `${op.numero} ${prod?.nome ?? ""} ${prod?.referencia ?? ""} ${cli?.nome ?? ""} ${op.cor ?? ""}`.toLowerCase();
+        if (!blob.includes(q)) return false;
+      }
       return true;
     });
-  }, [state.ops, filtro, terceirizadoId]);
+  }, [state.ops, filtro, terceirizadoId, busca, produto, cliente]);
 
   function stopAutoScroll() {
     scrollDir.current = 0;
@@ -198,10 +207,12 @@ export function MacroKanban({
     dispatch({ type: "MICRO_ACTION", opId, microId, status });
   }
 
-  function moveOp(opId: string, stageId: string) {
+  function moveOp(opId: string, stageId: string, fromStageId?: string) {
     const op = state.ops.find((o) => o.id === opId);
-    if (!op || op.stageId === stageId) return;
-    dispatch({ type: "MOVE_OP", opId, stageId, fromStageId: op.stageId });
+    if (!op) return;
+    const from = fromStageId ?? op.stageId;
+    if (from === stageId && op.stageId === stageId) return;
+    dispatch({ type: "MOVE_OP", opId, stageId, fromStageId: from });
   }
 
   function onBoardDragOver(e: DragEvent<HTMLDivElement>) {
@@ -237,10 +248,7 @@ export function MacroKanban({
       className="kanban-h-scroll flex h-full min-h-0 w-full flex-1 snap-x snap-mandatory gap-2 md:snap-none md:gap-3"
     >
       {stages.map((stage) => {
-        const unique = sortFamilyFirst(
-          ops,
-          ops.filter((op) => op.stageId === stage.id),
-        );
+        const unique = sortFamilyFirst(ops, opsInStage(ops, stage.id));
         const isOver = overStage === stage.id && dragging && dragging !== stage.id;
         return (
           <section
@@ -254,7 +262,8 @@ export function MacroKanban({
             onDrop={(e) => {
               e.preventDefault();
               const opId = e.dataTransfer.getData("text/op-id") || dragging;
-              if (opId) moveOp(opId, stage.id);
+              const fromStage = e.dataTransfer.getData("text/from-stage") || undefined;
+              if (opId) moveOp(opId, stage.id, fromStage);
               setDragging(null);
               setOverStage(null);
               stopAutoScroll();
@@ -296,9 +305,10 @@ export function MacroKanban({
                   const panelMicros = visibleMicros.length ? visibleMicros : micros;
                   const open = openOp === op.id || Boolean(terceirizadoId);
                   const done = micros.filter((m) => m.status === "concluida").length;
+                  const pecasAqui = pecasInStage(op, stage.id);
                   return (
                     <div
-                      key={op.id}
+                      key={`${op.id}-${stage.id}`}
                       draggable={isAdmin}
                       onDragStart={(e) => {
                         const target = e.target as HTMLElement;
@@ -307,6 +317,7 @@ export function MacroKanban({
                           return;
                         }
                         e.dataTransfer.setData("text/op-id", op.id);
+                        e.dataTransfer.setData("text/from-stage", stage.id);
                         e.dataTransfer.effectAllowed = "move";
                         setDragging(op.id);
                       }}
@@ -317,7 +328,8 @@ export function MacroKanban({
                       }}
                       className={cn(
                         "kanban-card rounded-md border bg-panel/80 p-2",
-                        familyCardClass(op, state.ops) || "border-line",
+                        familyCardClass(op, state.ops) ||
+                          (isSplitOp(op) ? "border-amber/35 border-l-2 border-l-amber" : "border-line"),
                         isAdmin && "cursor-grab active:cursor-grabbing",
                         dragging === op.id && "is-dragging",
                       )}
@@ -338,7 +350,9 @@ export function MacroKanban({
                           <p className="truncate text-[10px] text-faint">{cliente(op.clienteId)?.nome}</p>
                         </Link>
                         <div className="flex flex-col items-end gap-1">
-                          <p className="text-[10px] tabular-nums text-faint">{nInt.format(op.quantidade)} pç</p>
+                          <p className="text-[10px] tabular-nums text-faint">
+                            {nInt.format(pecasAqui || op.quantidade)} pç
+                          </p>
                           {op.micros.length && !terceirizadoId ? (
                             <button
                               type="button"

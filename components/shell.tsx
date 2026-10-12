@@ -12,9 +12,9 @@ import {
 } from "lucide-react";
 import { mobileTabs, navItemActive, visibleGroups } from "@/lib/nav";
 import { useStore } from "@/lib/store/store";
-import { DemoAssistant } from "./chat/demo-assistant";
 import { useKanbanFull } from "./board/kanban-full";
 import { NotifBell, NotifToasts } from "./notifications/notif-center";
+import { OpDraftChip } from "./ops/op-draft-chip";
 import { SearchTrigger } from "./search/command-search";
 import { ThemeToggle } from "./theme";
 import { cn } from "./ui";
@@ -301,6 +301,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="text-mute">Genect Confecções</span>
           </div>
           <div className="ml-auto flex items-center gap-1.5">
+            <OpDraftChip />
             <SearchTrigger />
             <NotifBell />
             <ThemeToggle />
@@ -312,12 +313,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
         </header>
-        <main className={cn("flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain", full ? "pb-0" : "pb-[calc(8.75rem+env(safe-area-inset-bottom))] md:pb-24")}>
+        <main className={cn("flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain", full ? "pb-0" : "pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-4")}>
           <div key={pathname} className="page-enter flex min-h-0 flex-1 flex-col">
             {children}
           </div>
         </main>
-        {full ? null : <DemoAssistant />}
         <NotifToasts />
       </div>
       </div>

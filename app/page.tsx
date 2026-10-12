@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { MacroKanban, type PainelFiltro } from "@/components/board/macro-kanban";
 import { useKanbanFull } from "@/components/board/kanban-full";
-import { Badge, Button, ButtonLink, CreatableSelect, PageHeader, cn } from "@/components/ui";
+import { Badge, Button, ButtonLink, CreatableSelect, Input, PageHeader, cn } from "@/components/ui";
 import { opAtrasada } from "@/lib/prazos";
 import { uid } from "@/lib/format";
 import { useStore } from "@/lib/store/store";
@@ -16,6 +16,7 @@ export default function HomePage() {
   const { full, toggleFull } = useKanbanFull();
   const [filtro, setFiltro] = useState<PainelFiltro>("todas");
   const [terceirizadoId, setTerceirizadoId] = useState("");
+  const [busca, setBusca] = useState("");
 
   useEffect(() => {
     if (!isAdmin) router.replace("/ops");
@@ -81,6 +82,13 @@ export default function HomePage() {
               </Badge>
             </button>
           ))}
+          <Input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar OP, produto…"
+            className="h-8 min-h-8 w-full px-2.5 text-[12px] md:w-[min(14rem,100%)]"
+            aria-label="Buscar no Kanban"
+          />
           <CreatableSelect
             className="w-full md:w-[min(15.5rem,100%)]"
             triggerClassName="h-8 min-h-8 px-2.5 text-[12px] md:h-8 md:min-h-0 md:text-[12px]"
@@ -131,7 +139,11 @@ export default function HomePage() {
       </div>
 
       <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-        <MacroKanban filtro={filtro} terceirizadoId={terceirizadoId || undefined} />
+        <MacroKanban
+          filtro={filtro}
+          terceirizadoId={terceirizadoId || undefined}
+          busca={busca}
+        />
       </div>
     </div>
   );

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { use, useMemo, useState } from "react";
-import { Badge, Button, Card, Field, Input, Select, Stat, Textarea, cn } from "@/components/ui";
+import { Badge, Button, ButtonLink, Card, Field, Input, Select, Stat, Textarea, cn } from "@/components/ui";
 import {
   brl,
   categoriaLabel,
@@ -17,9 +17,14 @@ import {
 import { consumoEmEstoque, necessidadesOp } from "@/lib/ficha";
 import { linhasValorServico } from "@/lib/migrate";
 import { isSplitOp, opStageLabels } from "@/lib/op-flow";
+import { resumoMicroCaminho } from "@/lib/roteiro-path";
+import type { OpStatus } from "@/lib/types";
 import { useLookups, useStore } from "@/lib/store/store";
 import { OpFamilyMark } from "@/components/ops/op-family-mark";
+import { OpFluxoPanel } from "@/components/ops/op-fluxo-panel";
 import { ValorServicoResumo } from "@/components/ops/valor-servico";
+
+const STATUS_OPCOES: OpStatus[] = ["aberta", "em_producao", "revisao", "finalizada", "cancelada"];
 
 function FakeQr({ code }: { code: string }) {
   const cells = useMemo(() => {
@@ -49,11 +54,12 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
   const [produzida, setProduzida] = useState(String(op?.quantidadeProduzida ?? 0));
   const [perdas, setPerdas] = useState(String(op?.perdas ?? 0));
   const [refugo, setRefugo] = useState(String(op?.refugo ?? 0));
-  const [splitQty, setSplitQty] = useState("50");
-  const [splitTer, setSplitTer] = useState(op?.terceirizadoIds[0] ?? "");
-  const [splitStage, setSplitStage] = useState(op?.stageId ?? "");
   const [tab, setTab] = useState<"fluxo" | "insumos" | "financeiro">("fluxo");
   const [pendencia, setPendencia] = useState("");
+  const etapas = useMemo(
+    () => [...state.boardNodes].sort((a, b) => a.x - b.x || a.y - b.y),
+    [state.boardNodes],
+  );
 
   if (!op) return <p className="p-6 text-sm text-mute">OP não encontrada.</p>;
 
@@ -68,6 +74,7 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
   if (!visible) return <p className="p-6 text-sm text-mute">Sem acesso a esta OP.</p>;
 
   const needsInsumo = necessidadesOp(op, state.produtos);
+  const etapaAtual = stage(op.stageId);
 
   return (
     <div className="space-y-4 p-4">
@@ -80,11 +87,18 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
             {op.cor ? ` · ${op.cor}` : ""} · {cliente(op.clienteId)?.nome} · {empresa(op.empresaId)?.nome}
           </p>
           <OpFamilyMark op={op} ops={state.ops} className="mt-1 text-[12px]" />
+          {op.parentOpId && op.micros.length ? (
+            <p className="mt-1.5 max-w-xl text-[12px] text-mute">
+              Ramo no fluxograma:{" "}
+              <span className="font-medium text-ink">{resumoMicroCaminho(op.micros)}</span>
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge tone={op.status === "finalizada" ? "mint" : op.status === "cancelada" ? "rose" : "sky"}>
             {statusOpLabel[op.status]}
           </Badge>
+          {etapaAtual ? <Badge>{etapaAtual.label}</Badge> : null}
           <Badge tone={op.tipoNegocio === "fabricacao" ? "amber" : "violet"}>
             {tipoNegocioLabel[op.tipoNegocio]}
           </Badge>
@@ -92,6 +106,9 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
           {op.prioridade ? <Badge tone="amber">Prioridade</Badge> : null}
           {isAdmin ? (
             <>
+              <ButtonLink href={`/ops/${op.id}/editar`} size="sm" variant="soft">
+                Editar cadastro
+              </ButtonLink>
               <Button
                 size="sm"
                 variant="ghost"
@@ -115,6 +132,39 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
           ) : null}
         </div>
       </div>
+
+      {isAdmin && op.status !== "cancelada" ? (
+        <div className="grid gap-3 surface rounded-md p-4 sm:grid-cols-2">
+          <Field label="Status" hint="Situação da OP — cancelar libera a reserva de insumos">
+            <Select
+              value={op.status}
+              onChange={(e) =>
+                dispatch({ type: "SET_OP_STATUS", opId: op.id, status: e.target.value as OpStatus })
+              }
+            >
+              {STATUS_OPCOES.map((s) => (
+                <option key={s} value={s}>
+                  {statusOpLabel[s]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Etapa no Kanban" hint="Move a OP de coluna no painel — mesma ação do arrastar">
+            <Select
+              value={op.stageId}
+              onChange={(e) =>
+                dispatch({ type: "MOVE_OP", opId: op.id, stageId: e.target.value, fromStageId: op.stageId })
+              }
+            >
+              {etapas.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {n.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+      ) : null}
 
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Quantidade" value={nInt.format(op.quantidade)} hint={`Entrada ${formatDate(op.dataEntrada)}`} />
@@ -160,38 +210,24 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
                 </p>
               ) : null}
               {op.micros.length ? (
-                <div className="space-y-1.5">
-                  <p className="kicker">Micro-caminho {op.roteiroNome ? `· ${op.roteiroNome}` : ""}</p>
-                  {op.micros.map((m, i) => {
-                    const prev = op.micros[i - 1];
-                    const isOu = Boolean(m.altGroup && prev?.altGroup === m.altGroup);
-                    return (
-                      <div key={m.id}>
-                        {i > 0 ? (
-                          <p className="py-0.5 pl-2 text-[10px] font-medium uppercase tracking-[0.14em] text-faint">
-                            {isOu ? "ou" : "depois"}
-                          </p>
-                        ) : null}
-                        <div
-                          className={cn(
-                            "flex flex-wrap items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-[12px]",
-                            isOu ? "ml-4 border-sky/25 bg-sky/5" : "border-line",
-                          )}
-                        >
-                          <span>{m.nome}</span>
-                          <span className="text-faint">{m.status}</span>
-                          {isAdmin || m.terceirizadoId === currentUser.terceirizadoId ? (
-                            <span className="flex gap-1">
-                              <Button size="sm" variant="ghost" onClick={() => dispatch({ type: "MICRO_ACTION", opId: op.id, microId: m.id, status: "em_andamento" })}>Iniciar</Button>
-                              <Button size="sm" variant="ghost" onClick={() => dispatch({ type: "MICRO_ACTION", opId: op.id, microId: m.id, status: "pausada" })}>Pausar</Button>
-                              <Button size="sm" variant="ghost" onClick={() => dispatch({ type: "MICRO_ACTION", opId: op.id, microId: m.id, status: "concluida" })}>Finalizar</Button>
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <OpFluxoPanel
+                  op={op}
+                  isAdmin={isAdmin}
+                  canAct={(m) => isAdmin || m.terceirizadoId === currentUser.terceirizadoId}
+                  stageLabel={(macroId) => stage(macroId)?.label}
+                  boardNodes={state.boardNodes}
+                  terceirizados={state.terceirizados}
+                  onMicroAction={(microId, status) =>
+                    dispatch({ type: "MICRO_ACTION", opId: op.id, microId, status })
+                  }
+                  onSplit={(payload) =>
+                    dispatch({
+                      type: "SPLIT_OP",
+                      parentId: op.id,
+                      ...payload,
+                    })
+                  }
+                />
               ) : null}
               <div className="rounded-md border border-line p-3">
                 <p className="kicker mb-2">Pendência para a fábrica</p>
@@ -280,45 +316,6 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
                       }
                     >
                       Registrar revisão
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              {isAdmin && !op.parentOpId ? (
-                <div className="grid gap-2 rounded-md border border-line bg-panel p-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <Field label="Dividir lote (pç)">
-                    <Input value={splitQty} onChange={(e) => setSplitQty(e.target.value)} />
-                  </Field>
-                  <Field label="Enviar para">
-                    <Select value={splitTer} onChange={(e) => setSplitTer(e.target.value)}>
-                      {state.terceirizados.map((t) => (
-                        <option key={t.id} value={t.id}>{t.nome}</option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <Field label="Etapa">
-                    <Select value={splitStage} onChange={(e) => setSplitStage(e.target.value)}>
-                      {state.boardNodes.map((n) => (
-                        <option key={n.id} value={n.id}>{n.label}</option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <div className="flex items-end">
-                    <Button
-                      size="sm"
-                      variant="soft"
-                      onClick={() =>
-                        dispatch({
-                          type: "SPLIT_OP",
-                          parentId: op.id,
-                          quantidade: Number(splitQty) || 0,
-                          terceirizadoId: splitTer,
-                          stageId: splitStage,
-                        })
-                      }
-                    >
-                      Gerar OP filha
                     </Button>
                   </div>
                 </div>

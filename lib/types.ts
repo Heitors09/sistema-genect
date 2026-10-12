@@ -182,6 +182,17 @@ export interface OpProdutoLinha {
   variacoes: OpVariacao[];
 }
 
+export type RoteiroArestaKind = "sequencia" | "bifurcacao" | "filha" | "reuniao";
+
+/** Ligação no fluxograma do roteiro / micro-caminho. */
+export interface RoteiroAresta {
+  id: string;
+  fromId: string;
+  toId: string;
+  label?: string;
+  kind?: RoteiroArestaKind;
+}
+
 export interface MicroEtapa {
   id: string;
   nome: string;
@@ -194,6 +205,10 @@ export interface MicroEtapa {
   iniciadaEm?: string;
   concluidaEm?: string;
   pendencia?: string;
+  x?: number;
+  y?: number;
+  /** Id da micro na OP mãe (quando esta etapa veio de um split). */
+  origemMicroId?: string;
 }
 
 export interface RoteiroEtapaDef {
@@ -204,12 +219,17 @@ export interface RoteiroEtapaDef {
   terceirizadoId?: string;
   servicoId?: string;
   altGroup?: string;
+  x?: number;
+  y?: number;
 }
 
 export interface RoteiroModelo {
   id: string;
   nome: string;
   etapas: RoteiroEtapaDef[];
+  /** Grafo do fluxograma. Se ausente, deriva da ordem linear (+ altGroup). */
+  arestas?: RoteiroAresta[];
+  inicioId?: string;
 }
 
 export interface AnexoOp {
@@ -257,6 +277,10 @@ export interface OrdemProducao {
   roteiroId?: string;
   roteiroNome?: string;
   micros: MicroEtapa[];
+  /** Fluxograma dos micro-caminhos desta OP. */
+  microArestas?: RoteiroAresta[];
+  /** Nó atual no fluxograma (desta OP). */
+  microAtualId?: string;
   pendencias: PendenciaOp[];
 }
 
@@ -347,7 +371,7 @@ export interface MovimentoEstoque {
 
 export interface Notificacao {
   id: string;
-  tipo: "micro_recebido" | "op_atrasada";
+  tipo: "micro_recebido" | "op_atrasada" | "estoque_insuficiente";
   titulo: string;
   texto: string;
   opId?: string;
@@ -386,4 +410,5 @@ export interface AppState {
   recibos: ReciboTerceirizado[];
   categoriasInsumo: string[];
   tamanhosPadrao: string[];
+  coresPadrao: string[];
 }
