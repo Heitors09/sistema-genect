@@ -1,4 +1,13 @@
-import type { MicroStatus, OpStatus, OrcamentoStatus, OrigemFinanceira, StageKind, TipoNegocio } from "./types";
+import type {
+  AcertoModo,
+  AcertoStatus,
+  MicroStatus,
+  OpStatus,
+  OrcamentoStatus,
+  OrigemFinanceira,
+  StageKind,
+  TipoNegocio,
+} from "./types";
 
 export const brl = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -111,6 +120,7 @@ export const origemLabel: Record<OrigemFinanceira, string> = {
   faccao: "Terceirizado",
   compra: "Compra",
   faturamento: "Faturamento",
+  folha: "Folha",
 };
 
 export const stageKindLabel: Record<StageKind, string> = {
@@ -141,6 +151,18 @@ export function saldoConta(valor: number, movimentos: { valor: number; estornado
   const pago = movimentos.filter((m) => !m.estornado).reduce((a, b) => a + b.valor, 0);
   return Math.max(0, Number((valor - pago).toFixed(2)));
 }
+
+export const acertoStatusLabel: Record<AcertoStatus, string> = {
+  pendente: "Pendente",
+  pagando: "Pagando",
+  pago: "Pago",
+};
+
+export const acertoModoLabel: Record<AcertoModo, string> = {
+  inteiro: "Inteiro",
+  partes: "Por partes",
+  desconto: "Com desconto",
+};
 
 export const microStatusLabel: Record<MicroStatus, string> = {
   aguardando: "Aguardando",

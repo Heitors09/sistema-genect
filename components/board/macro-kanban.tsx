@@ -49,7 +49,7 @@ function matchesFiltro(op: OrdemProducao, filtro: PainelFiltro) {
   if (filtro === "prioridade") return op.prioridade && op.status !== "finalizada";
   if (filtro === "atrasada") return opAtrasada(op);
   if (filtro === "aguardando") {
-    return op.micros.some((m) => m.status === "pendencia" || (m.terceirizadoId && m.status === "aguardando"));
+    return op.micros.some((m) => m.status === "pendencia" || m.status === "aguardando");
   }
   return op.status === "aberta";
 }

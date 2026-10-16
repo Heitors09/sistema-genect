@@ -2,29 +2,75 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { BarChartMensal, DespesaBreakdown } from "@/components/financeiro/finance-charts";
 import { Badge, Button, Card, PageHeader, Select, Stat, cn } from "@/components/ui";
+import {
+  competenciaAnterior,
+  computeDre,
+  listCompetencias,
+  REGIME_LABEL,
+  variacaoPct,
+} from "@/lib/dre";
 import { brl, competenciaAtual, orcamentoLabel, saldoConta } from "@/lib/format";
+import type { DreRegime } from "@/lib/types";
 import { useStore } from "@/lib/store/store";
+
+const MES_LABEL: Record<string, string> = {
+  "01": "Jan",
+  "02": "Fev",
+  "03": "Mar",
+  "04": "Abr",
+  "05": "Mai",
+  "06": "Jun",
+  "07": "Jul",
+  "08": "Ago",
+  "09": "Set",
+  "10": "Out",
+  "11": "Nov",
+  "12": "Dez",
+};
+
+function labelComp(comp: string) {
+  const [, m] = comp.split("-");
+  return MES_LABEL[m ?? ""] ?? comp;
+}
 
 export default function FinanceiroPage() {
   const { state, isAdmin } = useStore();
   const [empresaId, setEmpresaId] = useState(state.empresas[0]?.id ?? "");
   const [comp, setComp] = useState(competenciaAtual());
+  const [regime, setRegime] = useState<DreRegime>("competencia");
+  const [expand, setExpand] = useState<Record<string, boolean>>({});
   const orc = state.orcamentos.find((o) => o.empresaId === empresaId && o.competencia === comp);
 
-  const dre = useMemo(() => {
-    const fats = state.faturamentos.filter((f) => f.empresaId === empresaId && f.competencia === comp);
-    const receitaBruta = fats.reduce((a, f) => a + f.valor, 0);
-    const varDesp = state.contasPagar
-      .filter((c) => c.empresaId === empresaId && c.competencia === comp && (c.origem === "faccao" || c.origem === "compra"))
-      .reduce((a, c) => a + c.valor, 0);
-    const fixas = orc?.despesasFixas ?? 0;
-    const fin = orc?.resultadoFinanceiro ?? 0;
-    const trib = orc ? orc.tributos : receitaBruta * 0.09;
-    const margem = receitaBruta - varDesp;
-    const liquido = margem - fixas + fin - trib;
-    return { receitaBruta, varDesp, margem, fixas, fin, trib, liquido };
-  }, [state, empresaId, comp, orc]);
+  const comps = useMemo(() => listCompetencias(comp, 6), [comp]);
+  const dre = useMemo(() => computeDre(state, empresaId, comp, regime), [state, empresaId, comp, regime]);
+  const dreAnt = useMemo(
+    () => computeDre(state, empresaId, competenciaAnterior(comp), regime),
+    [state, empresaId, comp, regime],
+  );
+
+  const receitaSerie = useMemo(() => {
+    return comps.map((c) => ({
+      label: labelComp(c),
+      valor: computeDre(state, empresaId, c, regime).receitaBruta,
+    }));
+  }, [comps, state, empresaId, regime]);
+
+  const despesaItems = useMemo(() => {
+    const cats = state.categoriasFinanceiras.filter(
+      (c) => c.ativa && c.tipo === "despesa_custo" && c.grupoDreId,
+    );
+    return cats
+      .map((c) => {
+        const valor = dre.porCategoria[c.id] ?? 0;
+        const ant = dreAnt.porCategoria[c.id] ?? 0;
+        return { label: c.nome, valor, pct: variacaoPct(valor, ant) };
+      })
+      .filter((x) => x.valor > 0)
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 6);
+  }, [state.categoriasFinanceiras, dre, dreAnt]);
 
   const fluxo = useMemo(() => {
     const pagar = state.contasPagar.filter((c) => c.empresaId === empresaId);
@@ -43,11 +89,12 @@ export default function FinanceiroPage() {
       <PageHeader
         kicker="Financeiro"
         title="Visão gerencial"
-        description="Fluxo de caixa (previsto × realizado) separado da DRE. OP não entra como receita sem faturamento."
+        description="DRE Gerencial no padrão Sensio: categorias → grupos, com regimes Caixa, Competência e Vendas/Compras. Impostos fora até definir o regime tributário."
         actions={
           <>
-            <Link href="/financeiro/pagar"><Button variant="ghost">Contas a pagar</Button></Link>
-            <Link href="/financeiro/receber"><Button>Faturar e receber</Button></Link>
+            <Link href="/financeiro/categorias"><Button variant="ghost">Categorias</Button></Link>
+            <Link href="/financeiro/despesas"><Button variant="ghost">Despesas</Button></Link>
+            <Link href="/financeiro/receitas"><Button>Receita de vendas</Button></Link>
           </>
         }
       />
@@ -58,59 +105,167 @@ export default function FinanceiroPage() {
           ))}
         </Select>
         <Select value={comp} onChange={(e) => setComp(e.target.value)} className="max-w-36">
-          <option value="2026-09">2026-09</option>
-          <option value="2026-08">2026-08</option>
-          <option value="2026-10">2026-10</option>
+          {Array.from(new Set([...comps, "2026-10", "2026-09", "2026-08", comp])).map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </Select>
+        <Select value={regime} onChange={(e) => setRegime(e.target.value as DreRegime)} className="max-w-48">
+          {(Object.keys(REGIME_LABEL) as DreRegime[]).map((r) => (
+            <option key={r} value={r}>{REGIME_LABEL[r]}</option>
+          ))}
         </Select>
       </div>
 
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat
+          label="Receita de vendas"
+          value={brl.format(dre.receitaBruta)}
+          tone="mint"
+          hint={`${REGIME_LABEL[regime]} · ${comp}`}
+        />
+        <Stat
+          label="Lucro bruto"
+          value={brl.format(dre.lucroBruto)}
+          hint={`Margem ${dre.margemBrutaPct.toFixed(1)}%`}
+        />
+        <Stat
+          label="Resultado operacional"
+          value={brl.format(dre.resultadoOperacional)}
+          hint="Após despesas e financeiro"
+        />
+        <Stat
+          label="Margem líquida"
+          value={`${dre.margemLiquidaPct.toFixed(1)}%`}
+          tone={dre.resultadoLiquido >= 0 ? "mint" : "rose"}
+          hint={brl.format(dre.resultadoLiquido)}
+        />
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-5">
+        <Card className="p-4 lg:col-span-3">
+          <p className="kicker mb-3">Receita de vendas · últimos meses</p>
+          <BarChartMensal
+            items={receitaSerie}
+            highlight={labelComp(comp)}
+          />
+        </Card>
+        <Card className="p-4 lg:col-span-2">
+          <p className="kicker mb-3">Categorias · vs mês anterior</p>
+          <DespesaBreakdown items={despesaItems} />
+        </Card>
+      </div>
+
       <div>
-        <p className="kicker mb-3">Fluxo de caixa — não é saldo bancário</p>
+        <p className="kicker mb-3">Fluxo de caixa — previsto × realizado</p>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Entradas previstas" value={brl.format(fluxo.previstoEntrada)} hint="Vencimentos em aberto" />
-          <Stat label="Entradas realizadas" value={brl.format(fluxo.realizadoEntrada)} tone="mint" hint="Recebimentos" />
-          <Stat label="Saídas previstas" value={brl.format(fluxo.previstoSaida)} hint="Contas em aberto" />
-          <Stat label="Saídas realizadas" value={brl.format(fluxo.realizadoSaida)} tone="rose" hint="Pagamentos" />
+          <Stat label="Entradas previstas" value={brl.format(fluxo.previstoEntrada)} hint="Em aberto" />
+          <Stat label="Entradas realizadas" value={brl.format(fluxo.realizadoEntrada)} tone="mint" />
+          <Stat label="Saídas previstas" value={brl.format(fluxo.previstoSaida)} />
+          <Stat label="Saídas realizadas" value={brl.format(fluxo.realizadoSaida)} tone="rose" />
         </div>
       </div>
 
       <Card className="p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <p className="kicker">DRE gerencial · competência {comp}</p>
-          {orc ? <Badge tone={orc.status === "fechado" ? "mint" : orc.status === "aprovado" ? "sky" : "amber"}>{orcamentoLabel[orc.status]}</Badge> : null}
-        </div>
-        <div className="grid gap-2 text-[13px] sm:grid-cols-2">
-          <Row label="Receita bruta (faturada)" value={dre.receitaBruta} />
-          <Row label="Despesas variáveis" value={dre.varDesp} negative />
-          <Row label="Margem" value={dre.margem} />
-          <Row label="Despesas fixas" value={dre.fixas} negative />
-          <Row label="Resultado financeiro" value={dre.fin} />
-          <Row label="Tributos" value={dre.trib} negative />
-          <div className="sm:col-span-2 border-t border-line pt-2">
-            <Row label="Resultado líquido" value={dre.liquido} />
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="kicker">DRE Gerencial · {REGIME_LABEL[regime]} · {comp}</p>
+          <div className="flex items-center gap-2">
+            {orc ? (
+              <Badge tone={orc.status === "fechado" ? "mint" : orc.status === "aprovado" ? "sky" : "amber"}>
+                Orç. {orcamentoLabel[orc.status]}
+              </Badge>
+            ) : null}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                const next: Record<string, boolean> = {};
+                for (const l of dre.linhas) {
+                  if (l.tipo === "grupo") next[l.id] = true;
+                }
+                setExpand(next);
+              }}
+            >
+              Expandir categorias
+            </Button>
           </div>
         </div>
-        {orc ? (
-          <p className="mt-3 text-[12px] text-faint">
-            Orçado {brl.format(orc.receitaBruta)} × realizado {brl.format(dre.receitaBruta)} em receita.
-          </p>
-        ) : (
-          <p className="mt-3 text-[12px] text-faint">Sem orçamento nesta competência. Copie um existente abaixo.</p>
-        )}
+        <div className="space-y-1">
+          {dre.linhas.map((linha) => {
+            const open = expand[linha.id];
+            const hasCats = !!linha.categorias?.length;
+            return (
+              <div key={linha.id}>
+                <button
+                  type="button"
+                  disabled={!hasCats}
+                  onClick={() => setExpand((e) => ({ ...e, [linha.id]: !e[linha.id] }))}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-[13px]",
+                    linha.tipo === "total"
+                      ? "border border-line-strong bg-elevated"
+                      : linha.tipo === "subtotal"
+                        ? "bg-panel"
+                        : "bg-elevated/40 hover:bg-elevated/70",
+                    hasCats && "cursor-pointer",
+                  )}
+                >
+                  <span className={cn(linha.destaque ? "font-semibold text-ink" : "text-mute")}>
+                    {hasCats ? (open ? "▾ " : "▸ ") : ""}
+                    {linha.label}
+                  </span>
+                  <span className="flex items-baseline gap-3">
+                    {linha.pctReceita != null && linha.tipo !== "total" ? (
+                      <span className="text-[11px] tabular-nums text-faint">{linha.pctReceita.toFixed(1)}%</span>
+                    ) : null}
+                    <span
+                      className={cn(
+                        "min-w-[7rem] text-right font-semibold tabular-nums tracking-tight",
+                        linha.valor < 0 ? "text-rose" : "text-ink",
+                        linha.tipo === "grupo" ? "text-[13px] font-medium" : "text-[15px]",
+                      )}
+                    >
+                      {brl.format(linha.valor)}
+                    </span>
+                  </span>
+                </button>
+                {open && hasCats ? (
+                  <div className="mb-1 ml-3 space-y-0.5 border-l border-line pl-3">
+                    {linha.categorias!.map((c) => (
+                      <div key={c.id} className="flex items-center justify-between gap-2 py-1 text-[12px]">
+                        <Link
+                          href={
+                            c.valor >= 0 && linha.grupoId === "gdre-receita-bruta"
+                              ? "/financeiro/receitas"
+                              : "/financeiro/despesas"
+                          }
+                          className="text-mute hover:text-sky hover:underline"
+                        >
+                          {c.nome}
+                        </Link>
+                        <span className="flex items-baseline gap-3">
+                          <span className="tabular-nums text-faint">{c.pctReceita.toFixed(1)}%</span>
+                          <span className="min-w-[6rem] text-right tabular-nums text-ink">
+                            {brl.format(linha.valor < 0 ? -c.valor : c.valor)}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-[12px] text-faint">
+          Caixa = quitações no período · Competência = lançamentos pela competência · Vendas/compras = faturamento na data.
+          Impostos não deduzidos.{" "}
+          <Link href="/financeiro/categorias" className="text-sky hover:underline">Categorias</Link>
+          {" · "}
+          <Link href="/financeiro/grupos-dre" className="text-sky hover:underline">Grupo DRE</Link>.
+        </p>
       </Card>
 
       <Orcamentos />
-    </div>
-  );
-}
-
-function Row({ label, value, negative }: { label: string; value: number; negative?: boolean }) {
-  return (
-    <div className="flex items-center justify-between rounded-md bg-panel px-3 py-2">
-      <span className="text-[13px] text-mute">{label}</span>
-      <span className={cn("text-[15px] font-semibold tabular-nums tracking-tight", value < 0 || negative ? "text-rose" : "text-ink")}>
-        {brl.format(value)}
-      </span>
     </div>
   );
 }

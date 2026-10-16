@@ -12,6 +12,7 @@ import {
   type Dispatch,
   type ReactNode,
 } from "react";
+import { CATEGORIA_IDS, PLANO_CONTA_IDS } from "../dre-defaults";
 import { competenciaAtual, stageColors, todayISO, uid } from "../format";
 import { migrateState, servicosDe, valorServicoTerceirizado, valorServicosOp } from "../migrate";
 import { notifyLive } from "../notif-live";
@@ -24,20 +25,25 @@ import {
 } from "../roteiro-graph";
 import { resumoMicroCaminho } from "../roteiro-path";
 import type {
+  AcertoTerceirizado,
   AppState,
   BoardEdge,
   BoardNode,
   Cliente,
+  CategoriaFinanceira,
   ContaPagar,
   ContaReceber,
   Empresa,
+  FolhaPagamento,
   Fornecedor,
+  GrupoDre,
   Insumo,
   MicroEtapa,
   MicroStatus,
   OpStatus,
   OrdemProducao,
   OrcamentoDre,
+  PlanoConta,
   Produto,
   ReciboTerceirizado,
   RoteiroAresta,
@@ -141,14 +147,21 @@ type Action =
   | { type: "SAVE_CONTA_PAGAR"; conta: ContaPagar }
   | { type: "PAGAR"; contaId: string; valor: number; data: string }
   | { type: "ESTORNAR_PAGAMENTO"; contaId: string; pagamentoId: string; motivo: string; autor: string }
+  | { type: "SAVE_CONTA_RECEBER"; conta: ContaReceber }
   | { type: "FATURAR_OP"; opId: string; vencimento: string; competencia: string }
   | { type: "RECEBER"; contaId: string; valor: number; data: string }
   | { type: "ESTORNAR_RECEBIMENTO"; contaId: string; recebimentoId: string; motivo: string; autor: string }
   | { type: "SAVE_ORCAMENTO"; orcamento: OrcamentoDre }
   | { type: "COPY_ORCAMENTO"; id: string; competencia: string }
   | { type: "CYCLE_ORCAMENTO"; id: string }
+  | { type: "SAVE_GRUPO_DRE"; grupo: GrupoDre }
+  | { type: "SAVE_PLANO_CONTA"; conta: PlanoConta }
+  | { type: "SAVE_CATEGORIA"; categoria: CategoriaFinanceira }
+  | { type: "SAVE_FOLHA"; folha: FolhaPagamento }
+  | { type: "TOGGLE_FOLHA_PAGO"; id: string; pago: boolean; data?: string }
   | { type: "GERAR_ACERTO_FACCAO"; opId: string; vencimento: string }
-  | { type: "BAIXA_ATADO"; opId: string; atadoId: string };
+  | { type: "BAIXA_ATADO"; opId: string; atadoId: string }
+  | { type: "SAVE_ACERTO_TERCEIRIZADO"; acerto: AcertoTerceirizado };
 
 const PREV_STORE_KEYS = ["genecthub-state-v6", "genecthub-state-v5"];
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
@@ -651,6 +664,8 @@ function reducer(state: AppState, action: Action): AppState {
               descricao: `${t?.nome ?? "Terceirizado"} · ${done.nome} · ${op.numero}`,
               origem: "faccao",
               origemId: `${op.id}:${done.id}`,
+              contaPlanoId: PLANO_CONTA_IDS.custoFaccao,
+              categoriaId: CATEGORIA_IDS.custoFaccao,
               valor,
               vencimento: todayISO(),
               competencia: competenciaAtual(),
@@ -943,6 +958,32 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case "ADD_RECIBO":
       return { ...state, recibos: [action.recibo, ...state.recibos] };
+    case "SAVE_ACERTO_TERCEIRIZADO": {
+      const exists = state.acertosTerceirizado.some((a) => a.id === action.acerto.id);
+      const byKey = state.acertosTerceirizado.find(
+        (a) =>
+          a.terceirizadoId === action.acerto.terceirizadoId &&
+          a.opId === action.acerto.opId &&
+          a.microId === action.acerto.microId,
+      );
+      if (exists) {
+        return {
+          ...state,
+          acertosTerceirizado: state.acertosTerceirizado.map((a) =>
+            a.id === action.acerto.id ? action.acerto : a,
+          ),
+        };
+      }
+      if (byKey) {
+        return {
+          ...state,
+          acertosTerceirizado: state.acertosTerceirizado.map((a) =>
+            a.id === byKey.id ? { ...action.acerto, id: byKey.id } : a,
+          ),
+        };
+      }
+      return { ...state, acertosTerceirizado: [action.acerto, ...state.acertosTerceirizado] };
+    }
     case "MARK_NOTIF":
       return {
         ...state,
@@ -1124,6 +1165,8 @@ function reducer(state: AppState, action: Action): AppState {
         origem: "faturamento",
         origemId: fatId,
         opId: op.id,
+        contaPlanoId: PLANO_CONTA_IDS.receitaVendas,
+        categoriaId: CATEGORIA_IDS.receitaVendas,
         valor,
         vencimento: action.vencimento,
         competencia: action.competencia,
@@ -1213,6 +1256,137 @@ function reducer(state: AppState, action: Action): AppState {
           return { ...o, status: next };
         }),
       };
+    case "SAVE_CONTA_RECEBER": {
+      const exists = state.contasReceber.some((c) => c.id === action.conta.id);
+      return {
+        ...state,
+        contasReceber: exists
+          ? state.contasReceber.map((c) => (c.id === action.conta.id ? action.conta : c))
+          : [action.conta, ...state.contasReceber],
+      };
+    }
+    case "SAVE_GRUPO_DRE": {
+      const exists = state.gruposDre.some((g) => g.id === action.grupo.id);
+      return {
+        ...state,
+        gruposDre: exists
+          ? state.gruposDre.map((g) => (g.id === action.grupo.id ? action.grupo : g))
+          : [...state.gruposDre, action.grupo].sort((a, b) => a.ordem - b.ordem),
+      };
+    }
+    case "SAVE_PLANO_CONTA": {
+      const exists = state.planoContas.some((c) => c.id === action.conta.id);
+      return {
+        ...state,
+        planoContas: exists
+          ? state.planoContas.map((c) => (c.id === action.conta.id ? action.conta : c))
+          : [...state.planoContas, action.conta].sort((a, b) => a.codigo.localeCompare(b.codigo)),
+      };
+    }
+    case "SAVE_CATEGORIA": {
+      const cat = action.categoria;
+      const exists = state.categoriasFinanceiras.some((c) => c.id === cat.id);
+      const cleared = state.categoriasFinanceiras.map((c) => ({
+        ...c,
+        padraoVendas: cat.padraoVendas ? false : c.padraoVendas,
+        padraoReceber: cat.padraoReceber ? false : c.padraoReceber,
+        padraoCompras: cat.padraoCompras ? false : c.padraoCompras,
+        padraoPagar: cat.padraoPagar ? false : c.padraoPagar,
+      }));
+      return {
+        ...state,
+        categoriasFinanceiras: (exists
+          ? cleared.map((c) => (c.id === cat.id ? cat : c))
+          : [...cleared, cat]
+        ).sort((a, b) => a.nome.localeCompare(b.nome)),
+      };
+    }
+    case "SAVE_FOLHA": {
+      const folha = action.folha;
+      const exists = state.folhasPagamento.some((f) => f.id === folha.id);
+      let contasPagar = state.contasPagar;
+      let contaPagarId = folha.contaPagarId;
+      if (!contaPagarId) {
+        contaPagarId = uid("cp");
+        contasPagar = [
+          {
+            id: contaPagarId,
+            empresaId: folha.empresaId,
+            descricao: `Folha · ${folha.colaborador}`,
+            origem: "folha",
+            origemId: folha.id,
+            contaPlanoId: PLANO_CONTA_IDS.folha,
+            categoriaId: CATEGORIA_IDS.folha,
+            valor: folha.valor,
+            vencimento: folha.vencimento,
+            competencia: folha.competencia,
+            pagamentos: folha.pago
+              ? [{ id: uid("pg"), valor: folha.valor, data: folha.pagoEm ?? todayISO(), estornado: false }]
+              : [],
+          },
+          ...contasPagar,
+        ];
+      } else {
+        contasPagar = contasPagar.map((c) =>
+          c.id === contaPagarId
+            ? {
+                ...c,
+                descricao: `Folha · ${folha.colaborador}`,
+                valor: folha.valor,
+                vencimento: folha.vencimento,
+                competencia: folha.competencia,
+                contaPlanoId: PLANO_CONTA_IDS.folha,
+                categoriaId: CATEGORIA_IDS.folha,
+              }
+            : c,
+        );
+      }
+      const saved = { ...folha, contaPagarId };
+      return {
+        ...state,
+        contasPagar,
+        folhasPagamento: exists
+          ? state.folhasPagamento.map((f) => (f.id === folha.id ? saved : f))
+          : [saved, ...state.folhasPagamento],
+      };
+    }
+    case "TOGGLE_FOLHA_PAGO": {
+      const folha = state.folhasPagamento.find((f) => f.id === action.id);
+      if (!folha) return state;
+      const pago = action.pago;
+      const data = action.data ?? todayISO();
+      let contasPagar = state.contasPagar;
+      if (folha.contaPagarId) {
+        contasPagar = contasPagar.map((c) => {
+          if (c.id !== folha.contaPagarId) return c;
+          if (pago) {
+            const saldo =
+              c.valor - c.pagamentos.filter((p) => !p.estornado).reduce((a, p) => a + p.valor, 0);
+            if (saldo <= 0) return c;
+            return {
+              ...c,
+              pagamentos: [
+                ...c.pagamentos,
+                { id: uid("pg"), valor: saldo, data, estornado: false },
+              ],
+            };
+          }
+          return {
+            ...c,
+            pagamentos: c.pagamentos.map((p) =>
+              !p.estornado ? { ...p, estornado: true, motivoEstorno: "Folha reaberta", autorEstorno: "sistema" } : p,
+            ),
+          };
+        });
+      }
+      return {
+        ...state,
+        contasPagar,
+        folhasPagamento: state.folhasPagamento.map((f) =>
+          f.id === action.id ? { ...f, pago, pagoEm: pago ? data : undefined } : f,
+        ),
+      };
+    }
     case "GERAR_ACERTO_FACCAO": {
       const op = state.ops.find((o) => o.id === action.opId);
       if (!op) return state;
@@ -1228,6 +1402,8 @@ function reducer(state: AppState, action: Action): AppState {
             descricao: `Acerto terceirizado ${op.numero}`,
             origem: "faccao",
             origemId: op.id,
+            contaPlanoId: PLANO_CONTA_IDS.custoFaccao,
+            categoriaId: CATEGORIA_IDS.custoFaccao,
             valor,
             vencimento: action.vencimento,
             competencia: competenciaAtual(),

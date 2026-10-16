@@ -5,17 +5,15 @@ import { useRouter } from "next/navigation";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { MacroKanban, type PainelFiltro } from "@/components/board/macro-kanban";
 import { useKanbanFull } from "@/components/board/kanban-full";
-import { Badge, Button, ButtonLink, CreatableSelect, Input, PageHeader, cn } from "@/components/ui";
+import { Badge, Button, ButtonLink, Input, PageHeader, cn } from "@/components/ui";
 import { opAtrasada } from "@/lib/prazos";
-import { uid } from "@/lib/format";
 import { useStore } from "@/lib/store/store";
 
 export default function HomePage() {
-  const { state, dispatch, isAdmin } = useStore();
+  const { state, isAdmin } = useStore();
   const router = useRouter();
   const { full, toggleFull } = useKanbanFull();
   const [filtro, setFiltro] = useState<PainelFiltro>("todas");
-  const [terceirizadoId, setTerceirizadoId] = useState("");
   const [busca, setBusca] = useState("");
 
   useEffect(() => {
@@ -30,7 +28,7 @@ export default function HomePage() {
       prioridade: state.ops.filter((o) => o.prioridade && o.status !== "finalizada" && o.status !== "cancelada").length,
       atrasada: state.ops.filter(opAtrasada).length,
       aguardando: state.ops.filter((o) =>
-        o.micros.some((m) => m.status === "pendencia" || (m.terceirizadoId && m.status === "aguardando")),
+        o.micros.some((m) => m.status === "pendencia" || m.status === "aguardando"),
       ).length,
       aberta: abertas.length,
     };
@@ -44,7 +42,7 @@ export default function HomePage() {
     { id: "urgente", label: "Urgentes", count: counts.urgente, tone: "rose" },
     { id: "prioridade", label: "Prioridade", count: counts.prioridade, tone: "amber" },
     { id: "atrasada", label: "Atrasadas", count: counts.atrasada, tone: "rose" },
-    { id: "aguardando", label: "Aguardando terceirizado", count: counts.aguardando, tone: "amber" },
+    { id: "aguardando", label: "Aguardando / pendência", count: counts.aguardando, tone: "amber" },
   ];
 
   return (
@@ -89,31 +87,6 @@ export default function HomePage() {
             className="h-8 min-h-8 w-full px-2.5 text-[12px] md:w-[min(14rem,100%)]"
             aria-label="Buscar no Kanban"
           />
-          <CreatableSelect
-            className="w-full md:w-[min(15.5rem,100%)]"
-            triggerClassName="h-8 min-h-8 px-2.5 text-[12px] md:h-8 md:min-h-0 md:text-[12px]"
-            value={terceirizadoId}
-            emptyLabel="Todos os terceirizados"
-            addLabel="+ Novo terceirizado"
-            addPlaceholder="Nome do terceirizado"
-            options={state.terceirizados.filter((t) => t.ativo).map((t) => ({ value: t.id, label: t.nome }))}
-            onChange={setTerceirizadoId}
-            onAdd={(nome) => {
-              const id = uid("ter");
-              dispatch({
-                type: "SAVE_TERCEIRIZADO",
-                terceirizado: {
-                  id,
-                  nome,
-                  servicos: [],
-                  especialidade: "",
-                  valorPorPeca: 0,
-                  ativo: true,
-                },
-              });
-              setTerceirizadoId(id);
-            }}
-          />
         </div>
         <div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto md:shrink-0 md:gap-3">
           <Button
@@ -139,11 +112,7 @@ export default function HomePage() {
       </div>
 
       <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-        <MacroKanban
-          filtro={filtro}
-          terceirizadoId={terceirizadoId || undefined}
-          busca={busca}
-        />
+        <MacroKanban filtro={filtro} busca={busca} />
       </div>
     </div>
   );

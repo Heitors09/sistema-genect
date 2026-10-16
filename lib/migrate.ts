@@ -1,15 +1,105 @@
+import {
+  categoriaPadraoPorOrigem,
+  contaPlanoPadraoPorOrigem,
+  DEFAULT_CATEGORIAS,
+  DEFAULT_GRUPOS_DRE,
+  DEFAULT_PLANO_CONTAS,
+  PLANO_CONTA_IDS,
+  remapPlanoGrupo,
+} from "./dre-defaults";
 import { stageColors, uid } from "./format";
 import { MACRO_STAGES, opAtrasada } from "./prazos";
 import { ensureOpMicroGraph, ensureRoteiroGraph, microsComGrafo } from "./roteiro-graph";
 import type {
   AppState,
+  CategoriaFinanceira,
+  ContaPagar,
+  ContaReceber,
+  GrupoDre,
   MicroEtapa,
   OrdemProducao,
+  PlanoConta,
   Produto,
   RoteiroModelo,
   ServicoTerceirizado,
   Terceirizado,
 } from "./types";
+
+function mergeGruposDre(existing: GrupoDre[] | undefined): GrupoDre[] {
+  const byId = new Map((existing ?? []).map((g) => [g.id, g]));
+  for (const g of DEFAULT_GRUPOS_DRE) {
+    const prev = byId.get(g.id);
+    byId.set(g.id, prev ? { ...g, ...prev, nome: g.nome, tipo: g.tipo, ordem: g.ordem, sinal: g.sinal, fixo: g.fixo } : g);
+  }
+  const legacy = byId.get("gdre-resultado-fin");
+  if (legacy && byId.has("gdre-despesas-fin")) {
+    byId.set("gdre-resultado-fin", { ...legacy, ativo: false });
+  }
+  return [...byId.values()].sort((a, b) => a.ordem - b.ordem);
+}
+
+function mergePlanoContas(existing: PlanoConta[] | undefined): PlanoConta[] {
+  const byId = new Map((existing ?? []).map((c) => [c.id, c]));
+  for (const c of DEFAULT_PLANO_CONTAS) {
+    const prev = byId.get(c.id);
+    if (!prev) {
+      byId.set(c.id, c);
+      continue;
+    }
+    byId.set(c.id, {
+      ...prev,
+      grupoDreId: remapPlanoGrupo(c.id, prev.grupoDreId || c.grupoDreId),
+      nome: prev.nome || c.nome,
+      natureza: prev.natureza || c.natureza,
+      aceitaLancamento: prev.aceitaLancamento ?? c.aceitaLancamento,
+    });
+  }
+  return [...byId.values()].sort((a, b) => a.codigo.localeCompare(b.codigo));
+}
+
+function mergeCategorias(existing: CategoriaFinanceira[] | undefined): CategoriaFinanceira[] {
+  const byId = new Map((existing ?? []).map((c) => [c.id, c]));
+  for (const c of DEFAULT_CATEGORIAS) {
+    if (!byId.has(c.id)) byId.set(c.id, c);
+  }
+  return [...byId.values()].sort((a, b) => a.nome.localeCompare(b.nome));
+}
+
+function inferContaPlanoPagar(c: ContaPagar): string | undefined {
+  if (c.contaPlanoId) return c.contaPlanoId;
+  const byOrigem = contaPlanoPadraoPorOrigem(c.origem);
+  if (byOrigem) return byOrigem;
+  const d = c.descricao.toLowerCase();
+  if (d.includes("aluguel")) return PLANO_CONTA_IDS.aluguel;
+  if (d.includes("folha") || d.includes("salário") || d.includes("salario")) return PLANO_CONTA_IDS.folha;
+  if (d.includes("energia") || d.includes("água") || d.includes("agua")) return PLANO_CONTA_IDS.utilidades;
+  if (d.includes("marketing") || d.includes("propaganda") || d.includes("instagram") || d.includes("campanha")) {
+    return PLANO_CONTA_IDS.marketing;
+  }
+  if (d.includes("tarifa") || d.includes("juros") || d.includes("bancár") || d.includes("bancar")) {
+    return PLANO_CONTA_IDS.financeiro;
+  }
+  return PLANO_CONTA_IDS.admin;
+}
+
+function inferCategoriaPagar(c: ContaPagar, contaPlanoId?: string): string | undefined {
+  if (c.categoriaId) return c.categoriaId;
+  const byOrigem = categoriaPadraoPorOrigem(c.origem);
+  if (byOrigem) return byOrigem;
+  const map: Record<string, string> = {
+    [PLANO_CONTA_IDS.aluguel]: "cat-desp-aluguel",
+    [PLANO_CONTA_IDS.folha]: "cat-desp-folha",
+    [PLANO_CONTA_IDS.utilidades]: "cat-desp-utilidades",
+    [PLANO_CONTA_IDS.admin]: "cat-desp-admin",
+    [PLANO_CONTA_IDS.marketing]: "cat-desp-marketing",
+    [PLANO_CONTA_IDS.comissoes]: "cat-desp-comissoes",
+    [PLANO_CONTA_IDS.financeiro]: "cat-desp-fin",
+    [PLANO_CONTA_IDS.custoFaccao]: "cat-custo-faccao",
+    [PLANO_CONTA_IDS.custoCompras]: "cat-custo-compras",
+    [PLANO_CONTA_IDS.despOp]: "cat-desp-op",
+  };
+  return (contaPlanoId && map[contaPlanoId]) || "cat-desp-admin";
+}
 
 export const ROTEIRO_PADRAO: RoteiroModelo = ensureRoteiroGraph({
   id: "rot-padrao",
@@ -312,6 +402,31 @@ export function migrateState(raw: AppState): AppState {
     ...atrasadas.filter((n) => !existentes.has(`${n.tipo}:${n.opId}`)),
   ];
 
+  const gruposDre = mergeGruposDre(raw.gruposDre);
+  const planoContas = mergePlanoContas(raw.planoContas);
+  const categoriasFinanceiras = mergeCategorias(raw.categoriasFinanceiras);
+
+  const contasPagar = (raw.contasPagar ?? []).map((c) => {
+    const contaPlanoId = inferContaPlanoPagar(c);
+    return {
+      ...c,
+      contaPlanoId,
+      categoriaId: inferCategoriaPagar(c, contaPlanoId),
+      programada: c.programada ?? false,
+    };
+  });
+
+  const contasReceber = (raw.contasReceber ?? []).map((c: ContaReceber) => {
+    const contaPlanoId =
+      c.contaPlanoId ?? contaPlanoPadraoPorOrigem(c.origem) ?? PLANO_CONTA_IDS.receitaVendas;
+    return {
+      ...c,
+      contaPlanoId,
+      categoriaId:
+        c.categoriaId ?? categoriaPadraoPorOrigem(c.origem) ?? "cat-rec-vendas",
+    };
+  });
+
   return {
     ...raw,
     empresas: (raw.empresas ?? []).map((e) => ({ ...e, cnpj: e.cnpj ?? "", razaoSocial: e.razaoSocial ?? e.nome })),
@@ -330,6 +445,12 @@ export function migrateState(raw: AppState): AppState {
     roteiros,
     notificacoes,
     recibos: raw.recibos ?? [],
+    acertosTerceirizado: (raw.acertosTerceirizado ?? []).map((a) => ({
+      ...a,
+      lancamentos: a.lancamentos ?? [],
+      desconto: a.desconto ?? 0,
+      pago: a.pago ?? 0,
+    })),
     categoriasInsumo: raw.categoriasInsumo?.length
       ? raw.categoriasInsumo
       : ["tecido", "linha", "botao", "ziper", "etiqueta", "embalagem", "aviamento"],
@@ -361,5 +482,11 @@ export function migrateState(raw: AppState): AppState {
             ""),
       };
     }),
+    gruposDre,
+    planoContas,
+    categoriasFinanceiras,
+    contasPagar,
+    contasReceber,
+    folhasPagamento: raw.folhasPagamento ?? [],
   };
 }

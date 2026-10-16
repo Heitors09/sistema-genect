@@ -32,11 +32,20 @@ export type OpStatus =
   | "finalizada"
   | "cancelada";
 
-export type OrigemFinanceira = "manual" | "faccao" | "compra" | "faturamento";
+export type OrigemFinanceira = "manual" | "faccao" | "compra" | "faturamento" | "folha";
 
 export type StatusFinanceiro = "aberto" | "parcial" | "quitado" | "estornado";
 
 export type OrcamentoStatus = "rascunho" | "aprovado" | "fechado";
+
+export type TipoGrupoDre = "receita" | "deducao" | "custo" | "despesa" | "resultado";
+
+export type NaturezaConta = "receita" | "custo" | "despesa";
+
+/** Regime de cálculo do DRE (Sensio). */
+export type DreRegime = "competencia" | "caixa" | "faturamento";
+
+export type TipoCategoriaFinanceira = "receita" | "despesa_custo";
 
 export type MovimentoTipo = "entrada" | "reserva" | "baixa" | "liberacao";
 
@@ -308,12 +317,62 @@ export interface Pagamento {
   autorEstorno?: string;
 }
 
+export interface GrupoDre {
+  id: string;
+  codigo: string;
+  nome: string;
+  tipo: TipoGrupoDre;
+  ordem: number;
+  /** +1 soma no resultado; -1 subtrai (dedução/custo/despesa). */
+  sinal: 1 | -1;
+  ativo: boolean;
+  /** Grupo estrutural do DRE (não remover na UI). */
+  fixo?: boolean;
+}
+
+export interface PlanoConta {
+  id: string;
+  codigo: string;
+  nome: string;
+  grupoDreId: string;
+  natureza: NaturezaConta;
+  ativa: boolean;
+  aceitaLancamento: boolean;
+  contaPaiId?: string;
+}
+
+/**
+ * Categoria financeira (Sensio): usada no lançamento.
+ * Sem grupo DRE, a categoria não entra no DRE.
+ */
+export interface CategoriaFinanceira {
+  id: string;
+  nome: string;
+  tipo: TipoCategoriaFinanceira;
+  grupoDreId?: string;
+  contaPlanoId?: string;
+  parentId?: string;
+  ativa: boolean;
+  padraoVendas?: boolean;
+  padraoReceber?: boolean;
+  padraoCompras?: boolean;
+  padraoPagar?: boolean;
+}
+
 export interface ContaPagar {
   id: string;
   empresaId: string;
   descricao: string;
   origem: OrigemFinanceira;
   origemId?: string;
+  /** Categoria financeira (Sensio) — define grupo DRE. */
+  categoriaId?: string;
+  /** Conta do plano (espelho da categoria). */
+  contaPlanoId?: string;
+  /** Despesa programada / recorrente. */
+  programada?: boolean;
+  /** Dia do mês para renovação (1–28). */
+  recorrenciaDia?: number;
   valor: number;
   vencimento: string;
   competencia: string;
@@ -328,10 +387,26 @@ export interface ContaReceber {
   origem: OrigemFinanceira;
   origemId?: string;
   opId?: string;
+  categoriaId?: string;
+  contaPlanoId?: string;
   valor: number;
   vencimento: string;
   competencia: string;
   recebimentos: Pagamento[];
+}
+
+/** Lançamento de folha (pago / em aberto), espelhado em ContaPagar quando gerado. */
+export interface FolhaPagamento {
+  id: string;
+  empresaId: string;
+  competencia: string;
+  colaborador: string;
+  cargo?: string;
+  valor: number;
+  vencimento: string;
+  pago: boolean;
+  pagoEm?: string;
+  contaPagarId?: string;
 }
 
 export interface Faturamento {
@@ -387,6 +462,41 @@ export interface ReciboTerceirizado {
   dataUrl: string;
 }
 
+/** Forma de pagamento do serviço/atividade do terceirizado. */
+export type AcertoModo = "inteiro" | "partes" | "desconto";
+
+/** Andamento do pagamento ao terceirizado. */
+export type AcertoStatus = "pendente" | "pagando" | "pago";
+
+export type AcertoLancamentoTipo = "pagamento" | "desconto";
+
+/** Lançamento no acerto: pagamento (verde) ou desconto (vermelho). */
+export interface AcertoLancamento {
+  id: string;
+  tipo: AcertoLancamentoTipo;
+  valor: number;
+  data: string;
+  nota?: string;
+}
+
+/** Acerto de pagamento por OP + micro (serviço/atividade). */
+export interface AcertoTerceirizado {
+  id: string;
+  terceirizadoId: string;
+  opId: string;
+  microId: string;
+  modo: AcertoModo;
+  status: AcertoStatus;
+  valorOriginal: number;
+  desconto: number;
+  /** Já pago (útil em pagamento por partes). */
+  pago: number;
+  /** Histórico estilo trade: pagamentos em verde, descontos em vermelho. */
+  lancamentos: AcertoLancamento[];
+  observacao?: string;
+  updatedAt: string;
+}
+
 export interface AppState {
   usuarios: Usuario[];
   usuarioId: string;
@@ -404,10 +514,15 @@ export interface AppState {
   contasReceber: ContaReceber[];
   faturamentos: Faturamento[];
   orcamentos: OrcamentoDre[];
+  gruposDre: GrupoDre[];
+  planoContas: PlanoConta[];
+  categoriasFinanceiras: CategoriaFinanceira[];
+  folhasPagamento: FolhaPagamento[];
   movimentos: MovimentoEstoque[];
   roteiros: RoteiroModelo[];
   notificacoes: Notificacao[];
   recibos: ReciboTerceirizado[];
+  acertosTerceirizado: AcertoTerceirizado[];
   categoriasInsumo: string[];
   tamanhosPadrao: string[];
   coresPadrao: string[];
