@@ -712,13 +712,17 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
       <div className="min-w-0">
         {kicker ? <p className="kicker mb-1.5">{kicker}</p> : null}
         <h1 className="page-title">{title}</h1>
         {description ? <p className="lede hidden md:block">{description}</p> : null}
       </div>
-      {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+      {actions ? (
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+          {actions}
+        </div>
+      ) : null}
     </div>
   );
 }

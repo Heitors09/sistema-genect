@@ -72,7 +72,7 @@ export function categoriaDeLancamento(
   return undefined;
 }
 
-/** Soma lançamentos por categoria conforme regime Sensio. */
+/** Soma lançamentos por categoria conforme o regime da DRE. */
 export function lancamentosPorCategoria(
   state: AppState,
   empresaId: string,
@@ -260,7 +260,7 @@ export function computeDre(
   const custos = sumTipo("custo");
   const lucroBruto = receitaLiquida - custos;
 
-  // Despesas por grupo específico (ordem Sensio)
+  // Despesas por grupo específico (ordem da DRE)
   const despesasOp = porGrupo["gdre-despesas-op"] ?? 0;
   const despesasVendas = porGrupo["gdre-despesas-vendas"] ?? 0;
   const despesasAdmin = porGrupo["gdre-despesas-admin"] ?? 0;

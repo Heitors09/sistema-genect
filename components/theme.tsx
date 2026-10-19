@@ -62,7 +62,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       type="button"
       suppressHydrationWarning
         className={cn(
-          "motion-press grid h-10 w-10 place-items-center rounded-md border border-line text-mute hover:bg-elevated hover:text-ink md:h-8 md:w-8",
+          "motion-press grid h-10 w-10 place-items-center rounded-md border border-line text-mute hover:bg-elevated hover:text-ink sm:h-10 sm:w-10 md:h-8 md:w-8",
           className,
         )}
       aria-label={isLight ? "Ativar modo escuro" : "Ativar modo claro"}

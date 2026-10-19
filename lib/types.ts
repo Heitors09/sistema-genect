@@ -42,7 +42,7 @@ export type TipoGrupoDre = "receita" | "deducao" | "custo" | "despesa" | "result
 
 export type NaturezaConta = "receita" | "custo" | "despesa";
 
-/** Regime de cálculo do DRE (Sensio). */
+/** Regime de cálculo do DRE. */
 export type DreRegime = "competencia" | "caixa" | "faturamento";
 
 export type TipoCategoriaFinanceira = "receita" | "despesa_custo";
@@ -342,7 +342,7 @@ export interface PlanoConta {
 }
 
 /**
- * Categoria financeira (Sensio): usada no lançamento.
+ * Categoria financeira usada no lançamento.
  * Sem grupo DRE, a categoria não entra no DRE.
  */
 export interface CategoriaFinanceira {
@@ -365,7 +365,7 @@ export interface ContaPagar {
   descricao: string;
   origem: OrigemFinanceira;
   origemId?: string;
-  /** Categoria financeira (Sensio) — define grupo DRE. */
+  /** Categoria financeira — define grupo DRE. */
   categoriaId?: string;
   /** Conta do plano (espelho da categoria). */
   contaPlanoId?: string;

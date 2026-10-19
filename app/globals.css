@@ -591,6 +591,13 @@ select:disabled {
 
   .stack-table td:last-child {
     border-bottom: 0;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .stack-table td:last-child > * {
+    width: 100%;
   }
 
   .stack-table td::before {
@@ -602,6 +609,16 @@ select:disabled {
     font-weight: 500;
     letter-spacing: 0.06em;
     text-transform: uppercase;
+  }
+
+  .stack-table td:last-child::before {
+    max-width: none;
+  }
+
+  /* alvos de toque um pouco maiores em listas densas */
+  .stack-table button,
+  .stack-table a.motion-press {
+    min-height: 2.25rem;
   }
 }
 

@@ -59,7 +59,7 @@ export default function DespesasPage() {
       <PageHeader
         kicker="Financeiro"
         title="Despesas"
-        description="Lançamentos a pagar por categoria financeira (Sensio). Programadas e folha em seções próprias."
+        description="Lançamentos a pagar por categoria financeira. Programadas e folha em seções próprias."
       />
 
       <form

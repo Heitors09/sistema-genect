@@ -1,6 +1,6 @@
 import type { CategoriaFinanceira, GrupoDre, PlanoConta } from "./types";
 
-/** IDs estáveis — alinhados à estrutura do DRE Gerencial Sensio (sem impostos). */
+/** IDs estáveis da DRE gerencial (sem impostos). */
 export const GRUPO_DRE_IDS = {
   receitaVendas: "gdre-receita-bruta",
   deducoes: "gdre-deducoes",
@@ -46,7 +46,7 @@ export const CATEGORIA_IDS = {
   recFin: "cat-rec-fin",
 } as const;
 
-/** Grupos DRE no padrão Sensio — deduções sem linha de impostos (regime indefinido). */
+/** Grupos DRE — deduções sem linha de impostos (regime indefinido). */
 export const DEFAULT_GRUPOS_DRE: GrupoDre[] = [
   {
     id: GRUPO_DRE_IDS.receitaVendas,
@@ -250,7 +250,7 @@ export const DEFAULT_PLANO_CONTAS: PlanoConta[] = [
   },
 ];
 
-/** Categorias financeiras (camada Sensio): o lançamento usa a categoria; ela leva ao grupo DRE + plano. */
+/** Categorias financeiras: o lançamento usa a categoria; ela leva ao grupo DRE + plano. */
 export const DEFAULT_CATEGORIAS: CategoriaFinanceira[] = [
   {
     id: CATEGORIA_IDS.receitaVendas,
@@ -378,7 +378,7 @@ export function categoriaPadraoPorOrigem(origem: string): string | undefined {
   return undefined;
 }
 
-/** Remapeia grupo legado → novo após expansão Sensio. */
+/** Remapeia grupo legado → novo após expansão dos grupos DRE. */
 export function remapGrupoDreId(grupoId: string): string {
   if (grupoId === GRUPO_DRE_IDS.resultadoFinLegacy) return GRUPO_DRE_IDS.despesasFin;
   return grupoId;

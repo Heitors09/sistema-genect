@@ -89,10 +89,10 @@ export default function FinanceiroPage() {
       <PageHeader
         kicker="Financeiro"
         title="Visão gerencial"
-        description="DRE Gerencial no padrão Sensio: categorias → grupos, com regimes Caixa, Competência e Vendas/Compras. Impostos fora até definir o regime tributário."
+        description="DRE gerencial com categorias e grupos, nos regimes Caixa, Competência e Vendas/Compras. Impostos ficam de fora até definir o regime tributário."
         actions={
           <>
-            <Link href="/financeiro/categorias"><Button variant="ghost">Categorias</Button></Link>
+            <Link href="/financeiro/plano-gerencial"><Button variant="ghost">Plano gerencial</Button></Link>
             <Link href="/financeiro/despesas"><Button variant="ghost">Despesas</Button></Link>
             <Link href="/financeiro/receitas"><Button>Receita de vendas</Button></Link>
           </>
@@ -259,9 +259,7 @@ export default function FinanceiroPage() {
         <p className="mt-3 text-[12px] text-faint">
           Caixa = quitações no período · Competência = lançamentos pela competência · Vendas/compras = faturamento na data.
           Impostos não deduzidos.{" "}
-          <Link href="/financeiro/categorias" className="text-sky hover:underline">Categorias</Link>
-          {" · "}
-          <Link href="/financeiro/grupos-dre" className="text-sky hover:underline">Grupo DRE</Link>.
+          <Link href="/financeiro/plano-gerencial" className="text-sky hover:underline">Plano gerencial</Link>.
         </p>
       </Card>
 

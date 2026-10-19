@@ -280,19 +280,19 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <header className={cn("relative z-[70] flex h-12 shrink-0 items-center gap-2 border-b border-line bg-sidebar/70 px-3 backdrop-blur md:h-12 md:gap-3 md:px-4", full && "hidden")}>
+        <header className={cn("relative z-[70] flex h-12 shrink-0 items-center gap-1.5 border-b border-line bg-sidebar/70 px-2 backdrop-blur md:h-12 md:gap-3 md:px-4", full && "hidden")}>
           <button
             type="button"
-            className="grid h-10 w-10 place-items-center rounded-md text-ink hover:bg-elevated md:hidden"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-md text-ink hover:bg-elevated md:hidden"
             onClick={() => setMenuOpen(true)}
             aria-label="Abrir menu"
           >
             <Menu size={18} />
           </button>
-          <div className="min-w-0 md:hidden">
-            <p className="truncate text-[13px] font-semibold">{currentTitle}</p>
+          <div className="min-w-0 flex-1 md:hidden">
+            <p className="truncate text-[13px] font-semibold leading-tight">{currentTitle}</p>
             <p className="truncate text-[10px] text-mute">
-              {isAdmin ? "Administrador" : "Terceirizado"}
+              {isAdmin ? "Admin" : "Terceirizado"}
             </p>
           </div>
           <div className="hidden items-center gap-2 text-[12px] text-faint md:flex">
@@ -300,7 +300,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="text-faint/70">·</span>
             <span className="text-mute">Genect Confecções</span>
           </div>
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex shrink-0 items-center gap-1 md:gap-1.5">
             <OpDraftChip />
             <SearchTrigger />
             <NotifBell />
@@ -332,11 +332,17 @@ export function AppShell({ children }: { children: ReactNode }) {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 text-[10px] transition-colors duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
+                  "relative flex flex-col items-center justify-center gap-0.5 pt-1 text-[10px] transition-colors duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
                   active ? "text-ink" : "text-mute",
                 )}
               >
-                <Icon size={18} />
+                <span
+                  className={cn(
+                    "absolute top-0 h-0.5 w-5 rounded-full transition-colors",
+                    active ? "bg-ink" : "bg-transparent",
+                  )}
+                />
+                <Icon size={18} strokeWidth={active ? 2.25 : 1.75} />
                 {item.label}
               </Link>
             );
@@ -344,7 +350,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button
             type="button"
             onClick={() => setMenuOpen(true)}
-            className="flex flex-col items-center justify-center gap-0.5 text-[10px] text-mute"
+            className="relative flex flex-col items-center justify-center gap-0.5 pt-1 text-[10px] text-mute"
           >
             <Menu size={18} />
             Menu

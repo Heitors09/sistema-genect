@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
+  ArrowLeftRight,
   Check,
   ChevronDown,
   GripVertical,
@@ -12,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { microStatusLabel, nInt, stageKindLabel } from "@/lib/format";
+import { useIsDesktop } from "@/lib/hooks";
 import { servicosDe } from "@/lib/migrate";
 import { isSplitOp, opsInStage, pecasInStage, sortFamilyFirst } from "@/lib/op-flow";
 import { opAtrasada } from "@/lib/prazos";
@@ -122,7 +124,7 @@ function MicroBlock({
                     type="button"
                     size="sm"
                     variant="ghost"
-                    className="h-7 w-full justify-center px-2"
+                    className="h-9 w-full justify-center px-2 md:h-7"
                     onClick={() => onAct(opId, micro.id, action.status)}
                   >
                     <action.icon size={12} />
@@ -149,12 +151,16 @@ export function MacroKanban({
 }) {
   const { state, dispatch, isAdmin } = useStore();
   const { produto, cliente } = useLookups();
+  const desktop = useIsDesktop("(min-width: 768px)");
+  const mobile = desktop === false;
   const [openOp, setOpenOp] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<string | null>(null);
   const [composer, setComposer] = useState(false);
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState<StageKind>("custom");
+  const [activeStage, setActiveStage] = useState(0);
+  const [movePick, setMovePick] = useState<{ opId: string; fromStageId: string } | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const scrollDir = useRef(0);
   const scrollRaf = useRef(0);
@@ -163,6 +169,30 @@ export function MacroKanban({
     () => [...state.boardNodes].sort((a, b) => a.x - b.x || a.y - b.y),
     [state.boardNodes],
   );
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || !mobile) return;
+    function onScroll() {
+      const node = scroller.current;
+      if (!node) return;
+      const col = node.querySelector<HTMLElement>("[data-kanban-col]");
+      const step = (col?.offsetWidth ?? node.clientWidth) + 8;
+      const idx = Math.round(node.scrollLeft / Math.max(step, 1));
+      setActiveStage(Math.max(0, Math.min(stages.length - 1, idx)));
+    }
+    el.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [mobile, stages.length]);
+
+  function scrollToStage(index: number) {
+    const el = scroller.current;
+    if (!el) return;
+    const col = el.querySelectorAll<HTMLElement>("[data-kanban-col]")[index];
+    col?.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
+    setActiveStage(index);
+  }
 
   const ops = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -213,6 +243,7 @@ export function MacroKanban({
     const from = fromStageId ?? op.stageId;
     if (from === stageId && op.stageId === stageId) return;
     dispatch({ type: "MOVE_OP", opId, stageId, fromStageId: from });
+    setMovePick(null);
   }
 
   function onBoardDragOver(e: DragEvent<HTMLDivElement>) {
@@ -241,18 +272,71 @@ export function MacroKanban({
   }
 
   return (
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col gap-2">
+      {mobile ? (
+        <div className="shrink-0 space-y-2">
+          {movePick ? (
+            <div className="surface flex items-center gap-2 rounded-md px-3 py-2 text-[12px]">
+              <ArrowLeftRight size={14} className="shrink-0 text-ink" />
+              <span className="min-w-0 flex-1 truncate">
+                Toque numa etapa para mover {state.ops.find((o) => o.id === movePick.opId)?.numero}
+              </span>
+              <button type="button" className="shrink-0 text-mute" onClick={() => setMovePick(null)}>
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <p className="px-0.5 text-[11px] text-faint">
+              Deslize as colunas ou toque na etapa. Use Mover para trocar de quadro.
+            </p>
+          )}
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-webkit-overflow-scrolling:touch]">
+            {stages.map((stage, i) => {
+              const count = opsInStage(ops, stage.id).length;
+              const active = activeStage === i;
+              return (
+                <button
+                  key={stage.id}
+                  type="button"
+                  onClick={() => {
+                    if (movePick) {
+                      moveOp(movePick.opId, stage.id, movePick.fromStageId);
+                      return;
+                    }
+                    scrollToStage(i);
+                  }}
+                  className={cn(
+                    "motion-press inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[12px]",
+                    active || (movePick && overStage === stage.id)
+                      ? "border-line-strong bg-elevated text-ink"
+                      : "border-line text-mute",
+                    movePick && "border-sky/40",
+                  )}
+                >
+                  <span className="h-2 w-2 rounded-full" style={{ background: stage.color }} />
+                  <span className="max-w-[7rem] truncate">{stage.label}</span>
+                  <span className="tabular-nums text-faint">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
     <div
       ref={scroller}
       onDragOver={onBoardDragOver}
       onDragEnd={stopAutoScroll}
-      className="kanban-h-scroll flex h-full min-h-0 w-full flex-1 snap-x snap-mandatory gap-2 md:snap-none md:gap-3"
+      className="kanban-h-scroll flex min-h-0 w-full flex-1 snap-x snap-mandatory gap-2 md:snap-none md:gap-3"
     >
       {stages.map((stage) => {
         const unique = sortFamilyFirst(ops, opsInStage(ops, stage.id));
         const isOver = overStage === stage.id && dragging && dragging !== stage.id;
+        const pickTarget = Boolean(movePick);
         return (
           <section
             key={stage.id}
+            data-kanban-col
             onDragOver={(e) => {
               if (!isAdmin) return;
               e.preventDefault();
@@ -269,8 +353,9 @@ export function MacroKanban({
               stopAutoScroll();
             }}
             className={cn(
-              "kanban-col surface flex h-full w-full shrink-0 snap-start flex-col overflow-hidden rounded-md md:w-[18.5rem]",
+              "kanban-col surface flex h-full w-[min(86vw,22rem)] shrink-0 snap-center flex-col overflow-hidden rounded-md md:w-[18.5rem] md:snap-start",
               isOver && "is-over",
+              pickTarget && "shadow-[0_0_0_1px_rgb(126_162_214_/_0.35)]",
             )}
           >
             <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
@@ -279,7 +364,7 @@ export function MacroKanban({
                 <p className="truncate text-[13px] font-semibold">{stage.label}</p>
                 <p className="text-[10px] text-faint">{unique.length} OP</p>
               </div>
-              {isAdmin ? (
+              {isAdmin && !mobile ? (
                 <button
                   type="button"
                   className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-faint hover:bg-elevated hover:text-rose"
@@ -290,10 +375,17 @@ export function MacroKanban({
                 </button>
               ) : null}
             </div>
-            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
+            <div
+              className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2"
+              style={mobile ? { touchAction: "pan-y" } : undefined}
+            >
               {unique.length === 0 ? (
                 <p className="kanban-empty px-1 py-8 text-center text-[12px] text-faint">
-                  {isOver ? "Solte a OP aqui" : "Nenhuma OP · arraste para cá"}
+                  {isOver || pickTarget
+                    ? "Solte a OP aqui"
+                    : mobile
+                      ? "Nenhuma OP nesta etapa"
+                      : "Nenhuma OP · arraste para cá"}
                 </p>
               ) : (
                 unique.map((op) => {
@@ -306,10 +398,12 @@ export function MacroKanban({
                   const open = openOp === op.id || Boolean(terceirizadoId);
                   const done = micros.filter((m) => m.status === "concluida").length;
                   const pecasAqui = pecasInStage(op, stage.id);
+                  const movingHere =
+                    movePick?.opId === op.id && movePick.fromStageId === stage.id;
                   return (
                     <div
                       key={`${op.id}-${stage.id}`}
-                      draggable={isAdmin}
+                      draggable={isAdmin && !mobile}
                       onDragStart={(e) => {
                         const target = e.target as HTMLElement;
                         if (target.closest("button, a, input")) {
@@ -327,15 +421,16 @@ export function MacroKanban({
                         stopAutoScroll();
                       }}
                       className={cn(
-                        "kanban-card rounded-md border bg-panel/80 p-2",
+                        "kanban-card rounded-md border bg-panel/80 p-2.5 md:p-2",
                         familyCardClass(op, state.ops) ||
                           (isSplitOp(op) ? "border-amber/35 border-l-2 border-l-amber" : "border-line"),
-                        isAdmin && "cursor-grab active:cursor-grabbing",
+                        isAdmin && !mobile && "cursor-grab active:cursor-grabbing",
                         dragging === op.id && "is-dragging",
+                        movingHere && "border-line-strong",
                       )}
                     >
                       <div className="flex items-start gap-1.5">
-                        {isAdmin ? (
+                        {isAdmin && !mobile ? (
                           <GripVertical size={14} className="mt-0.5 shrink-0 text-faint" />
                         ) : null}
                         <Link href={`/ops/${op.id}`} className="min-w-0 flex-1" onClick={(e) => dragging && e.preventDefault()}>
@@ -359,7 +454,7 @@ export function MacroKanban({
                               aria-expanded={open}
                               aria-label={open ? `Recolher etapas de ${op.numero}` : `Ampliar etapas de ${op.numero}`}
                               onClick={() => setOpenOp((cur) => (cur === op.id ? null : op.id))}
-                              className="grid h-7 w-7 place-items-center rounded-md text-faint hover:bg-elevated hover:text-ink"
+                              className="grid h-9 w-9 place-items-center rounded-md text-faint hover:bg-elevated hover:text-ink md:h-7 md:w-7"
                             >
                               <ChevronDown
                                 size={14}
@@ -369,6 +464,24 @@ export function MacroKanban({
                           ) : null}
                         </div>
                       </div>
+                      {isAdmin && mobile ? (
+                        <button
+                          type="button"
+                          className={cn(
+                            "mt-2 h-9 w-full rounded-md text-[12px] font-medium",
+                            movingHere ? "bg-btn text-btn-ink" : "border border-line bg-elevated text-mute",
+                          )}
+                          onClick={() =>
+                            setMovePick((cur) =>
+                              cur?.opId === op.id && cur.fromStageId === stage.id
+                                ? null
+                                : { opId: op.id, fromStageId: stage.id },
+                            )
+                          }
+                        >
+                          {movingHere ? "Escolha a etapa…" : "Mover"}
+                        </button>
+                      ) : null}
                       {!open && micros.length ? (
                         <p className="mt-1 text-[10px] text-faint">
                           {done}/{micros.length} micro-etapas
@@ -400,7 +513,7 @@ export function MacroKanban({
       })}
 
       {isAdmin ? (
-        <section className="kanban-col flex h-full w-full shrink-0 snap-start flex-col justify-center gap-2 rounded-md border border-dashed border-line bg-card/30 p-4 md:w-[18.5rem]">
+        <section className="kanban-col flex h-full w-[min(86vw,22rem)] shrink-0 snap-center flex-col justify-center gap-2 rounded-md border border-dashed border-line bg-card/30 p-4 md:w-[18.5rem] md:snap-start">
           {composer ? (
             <div className="kanban-composer flex flex-col gap-2">
               <input
@@ -437,6 +550,7 @@ export function MacroKanban({
           )}
         </section>
       ) : null}
+    </div>
     </div>
   );
 }

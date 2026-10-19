@@ -63,36 +63,38 @@ export default function HomePage() {
       )}
 
       <div className="flex w-full shrink-0 flex-col gap-2 md:flex-row md:items-center md:gap-4">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-          {chips.map((chip) => (
-            <button
-              key={chip.id}
-              type="button"
-              onClick={() => setFiltro(chip.id)}
-              className={cn(
-                "motion-press inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[12px] leading-none",
-                filtro === chip.id ? "border-line-strong bg-elevated text-ink" : "border-line text-mute hover:bg-elevated/60",
-              )}
-            >
-              {chip.label}
-              <Badge tone={chip.tone} size="sm">
-                {chip.count}
-              </Badge>
-            </button>
-          ))}
+        <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-1.5">
+          <div className="-mx-0.5 flex gap-1.5 overflow-x-auto px-0.5 pb-0.5 [-webkit-overflow-scrolling:touch] md:flex-wrap md:overflow-visible md:pb-0">
+            {chips.map((chip) => (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => setFiltro(chip.id)}
+                className={cn(
+                  "motion-press inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[12px] leading-none md:h-8",
+                  filtro === chip.id ? "border-line-strong bg-elevated text-ink" : "border-line text-mute hover:bg-elevated/60",
+                )}
+              >
+                {chip.label}
+                <Badge tone={chip.tone} size="sm">
+                  {chip.count}
+                </Badge>
+              </button>
+            ))}
+          </div>
           <Input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar OP, produto…"
-            className="h-8 min-h-8 w-full px-2.5 text-[12px] md:w-[min(14rem,100%)]"
+            className="h-10 min-h-10 w-full px-2.5 text-[13px] md:h-8 md:min-h-8 md:w-[min(14rem,100%)] md:text-[12px]"
             aria-label="Buscar no Kanban"
           />
         </div>
-        <div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto md:shrink-0 md:gap-3">
+        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 md:flex md:w-auto md:shrink-0 md:gap-3">
           <Button
             type="button"
             variant="ghost"
-            className="h-8 min-h-8 w-full px-3 text-[12px] md:w-auto"
+            className="hidden h-8 min-h-8 w-full px-3 text-[12px] md:inline-flex md:w-auto"
             onClick={toggleFull}
           >
             {full ? (
@@ -105,7 +107,7 @@ export default function HomePage() {
               </>
             )}
           </Button>
-          <ButtonLink href="/ops/nova" className="h-8 min-h-8 w-full px-3 text-[12px] md:w-auto">
+          <ButtonLink href="/ops/nova" className="h-10 min-h-10 w-full px-3 text-[13px] md:h-8 md:min-h-8 md:w-auto md:text-[12px]">
             Nova OP
           </ButtonLink>
         </div>

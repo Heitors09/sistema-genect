@@ -43,24 +43,26 @@ export function OpDraftChip() {
   return (
     <div
       className={cn(
-        "flex h-8 max-w-[11.5rem] items-stretch overflow-hidden rounded-md border border-line",
+        "flex h-10 items-stretch overflow-hidden rounded-md border border-line md:h-8",
         "bg-elevated/50 text-mute shadow-[inset_0_1px_0_rgb(255_255_255_/_0.04)]",
+        "max-md:w-10 md:max-w-[11.5rem]",
       )}
       style={{ animation: "soft-in 220ms cubic-bezier(0.22, 1, 0.36, 1)" }}
     >
       <Link
         href="/ops/nova"
-        title="Voltar ao rascunho da OP"
-        className="motion-press flex min-w-0 flex-1 items-center gap-1.5 px-2 text-[11px] hover:bg-elevated/80 hover:text-ink"
+        title={label}
+        aria-label={label}
+        className="motion-press flex min-w-0 flex-1 items-center justify-center gap-1.5 px-0 text-[11px] hover:bg-elevated/80 hover:text-ink md:justify-start md:px-2"
       >
-        <FilePenLine size={12} strokeWidth={1.75} className="shrink-0 text-sky/80" />
-        <span className="truncate tracking-[-0.01em]">{label}</span>
+        <FilePenLine size={14} strokeWidth={1.75} className="shrink-0 text-sky/80 md:size-3" />
+        <span className="hidden truncate tracking-[-0.01em] md:inline">{label}</span>
       </Link>
       <button
         type="button"
         aria-label="Apagar rascunho da OP"
         title="Apagar rascunho"
-        className="motion-press grid w-7 shrink-0 place-items-center border-l border-line text-faint hover:bg-elevated hover:text-rose"
+        className="motion-press hidden w-7 shrink-0 place-items-center border-l border-line text-faint hover:bg-elevated hover:text-rose md:grid"
         onClick={() => {
           clearOpNovaDraft();
           setLabel(null);
