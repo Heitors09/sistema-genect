@@ -6,7 +6,6 @@ import { Badge, Button, ButtonLink, Card, Field, Input, Select, Stat, Textarea, 
 import {
   brl,
   categoriaLabel,
-  competenciaAtual,
   formatDate,
   nInt,
   produtoLabel,
@@ -16,6 +15,7 @@ import {
 } from "@/lib/format";
 import { consumoEmEstoque, necessidadesOp } from "@/lib/ficha";
 import { linhasValorServico } from "@/lib/migrate";
+import { formaPagamentoLabel } from "@/lib/financeiro";
 import { isSplitOp, opStageLabels } from "@/lib/op-flow";
 import { resumoMicroCaminho } from "@/lib/roteiro-path";
 import type { OpStatus } from "@/lib/types";
@@ -23,6 +23,7 @@ import { useLookups, useStore } from "@/lib/store/store";
 import { OpFamilyMark } from "@/components/ops/op-family-mark";
 import { OpFluxoPanel } from "@/components/ops/op-fluxo-panel";
 import { ValorServicoResumo } from "@/components/ops/valor-servico";
+import { FaturarModal } from "@/components/financeiro/receita-modals";
 
 const STATUS_OPCOES: OpStatus[] = ["aberta", "em_producao", "revisao", "finalizada", "cancelada"];
 
@@ -55,6 +56,7 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
   const [perdas, setPerdas] = useState(String(op?.perdas ?? 0));
   const [refugo, setRefugo] = useState(String(op?.refugo ?? 0));
   const [tab, setTab] = useState<"fluxo" | "insumos" | "financeiro">("fluxo");
+  const [faturarAberto, setFaturarAberto] = useState(false);
   const [pendencia, setPendencia] = useState("");
   const etapas = useMemo(
     () => [...state.boardNodes].sort((a, b) => a.x - b.x || a.y - b.y),
@@ -172,6 +174,28 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
         <Stat label="Perdas + refugo" value={nInt.format(op.perdas + op.refugo)} tone="rose" />
         <Stat label="Valor previsto" value={brl.format(op.quantidade * op.precoUnitario)} hint="Ainda não é receita" />
       </div>
+
+      {isAdmin && op.pagamento ? (
+        <Card className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 text-[12px]">
+          <span className="kicker">Pagamento previsto</span>
+          <span className="text-mute">
+            Faturamento <span className="tabular-nums text-ink">{formatDate(op.pagamento.dataFaturamento)}</span>
+          </span>
+          <span className="text-mute">
+            Forma <span className="text-ink">{formaPagamentoLabel[op.pagamento.formaPagamento]}</span>
+          </span>
+          <span className="text-mute">
+            Prazo <span className="tabular-nums text-ink">{op.pagamento.prazoDias} dias</span>
+          </span>
+          <span className="text-mute">
+            {op.pagamento.parcelas.map((p) => (
+              <span key={p.id} className="mr-2 inline-block tabular-nums text-ink">
+                {p.numero}/{op.pagamento!.parcelas.length} {brl.format(p.valor)} em {formatDate(p.vencimento)}
+              </span>
+            ))}
+          </span>
+        </Card>
+      ) : null}
 
       <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
         <Card className="p-4">
@@ -392,16 +416,9 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
                 <Button
                   size="sm"
                   disabled={billed}
-                  onClick={() =>
-                    dispatch({
-                      type: "FATURAR_OP",
-                      opId: op.id,
-                      vencimento: todayISO(),
-                      competencia: competenciaAtual(),
-                    })
-                  }
+                  onClick={() => setFaturarAberto(true)}
                 >
-                  {billed ? "OP já faturada" : "Faturamento interno"}
+                  {billed ? "OP já faturada" : "Faturar OP"}
                 </Button>
                 {op.status !== "cancelada" ? (
                   <Button size="sm" variant="danger" onClick={() => dispatch({ type: "CANCEL_OP", opId: op.id })}>
@@ -413,6 +430,13 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
                 OP recebida ≠ valor previsto ≠ faturamento ≠ conta ≠ pagamento ≠ receita na DRE.
               </p>
             </div>
+          ) : null}
+          {faturarAberto ? (
+            <FaturarModal
+              opIds={[op.id]}
+              onClose={() => setFaturarAberto(false)}
+              onDone={() => setFaturarAberto(false)}
+            />
           ) : null}
         </Card>
         <Card className="flex flex-row items-center gap-3 p-4 lg:grid lg:place-items-center lg:gap-2">

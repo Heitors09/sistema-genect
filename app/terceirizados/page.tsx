@@ -15,8 +15,10 @@ import {
   Input,
   PageHeader,
   Select,
+  Tabs,
   Td,
 } from "@/components/ui";
+import { ServicosLista } from "@/components/terceirizados/servicos-lista";
 import { TerceirizadoForm } from "@/components/terceirizados/terceirizado-form";
 import { useStore } from "@/lib/store/store";
 
@@ -36,6 +38,7 @@ function temAguardando(ops: ReturnType<typeof opsDoTerceirizado>, terceirizadoId
 export default function TerceirizadosPage() {
   const { state, currentUser, isAdmin } = useStore();
   const [novoAberto, setNovoAberto] = useState(false);
+  const [vista, setVista] = useState<"servicos" | "parceiros">("servicos");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<FiltroStatus>("todos");
   const [opsFiltro, setOpsFiltro] = useState<FiltroOps>("todas");
@@ -98,7 +101,10 @@ export default function TerceirizadosPage() {
               type="button"
               size="sm"
               variant={novoAberto ? "ghost" : "primary"}
-              onClick={() => setNovoAberto((v) => !v)}
+              onClick={() => {
+                setVista("parceiros");
+                setNovoAberto((v) => !v);
+              }}
             >
               {novoAberto ? (
                 "Fechar"
@@ -112,13 +118,33 @@ export default function TerceirizadosPage() {
         }
       />
 
-      {isAdmin && novoAberto ? (
+      {isAdmin ? (
+        <Tabs
+          value={vista}
+          onChange={setVista}
+          className="max-w-md"
+          items={[
+            { id: "servicos", label: "Serviços com terceirizados" },
+            { id: "parceiros", label: "Parceiros", count: base.length },
+          ]}
+        />
+      ) : null}
+
+      {isAdmin && vista === "servicos" ? <ServicosLista /> : null}
+
+      {isAdmin && vista === "parceiros" && novoAberto ? (
         <Card className="p-4">
           <p className="kicker mb-3">Novo terceirizado</p>
           <TerceirizadoForm onSaved={() => setNovoAberto(false)} />
         </Card>
       ) : null}
 
+      {!isAdmin && currentUser.terceirizadoId ? (
+        <ServicosLista terceirizadoId={currentUser.terceirizadoId} />
+      ) : null}
+
+      {!isAdmin || vista === "parceiros" ? (
+      <>
       {isAdmin ? (
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Input
@@ -235,6 +261,8 @@ export default function TerceirizadosPage() {
           {nInt.format(rows.length)} de {nInt.format(base.length)} terceirizado
           {base.length === 1 ? "" : "s"}
         </p>
+      ) : null}
+      </>
       ) : null}
     </div>
   );

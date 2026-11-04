@@ -19,7 +19,6 @@ export function CategoriasPanel() {
   const [nome, setNome] = useState("");
   const [tipo, setTipo] = useState<TipoCategoriaFinanceira>("despesa_custo");
   const [grupoDreId, setGrupo] = useState(state.gruposDre.find((g) => g.tipo === "despesa")?.id ?? "");
-  const [contaPlanoId, setConta] = useState("");
   const [parentId, setParent] = useState("");
   const [filtro, setFiltro] = useState("todos");
 
@@ -27,10 +26,14 @@ export function CategoriasPanel() {
     () => [...state.gruposDre].filter((g) => g.ativo).sort((a, b) => a.ordem - b.ordem),
     [state.gruposDre],
   );
-  const contasFolha = useMemo(
-    () => state.planoContas.filter((c) => c.ativa && c.aceitaLancamento),
-    [state.planoContas],
+  /** Grupos compatíveis com o tipo: receita → grupos de receita; despesa → dedução/custo/despesa. */
+  const gruposDoTipo = useMemo(
+    () => grupos.filter((g) => (tipo === "receita" ? g.tipo === "receita" : g.tipo !== "receita" && g.tipo !== "resultado")),
+    [grupos, tipo],
   );
+  function contaDoGrupo(gid: string) {
+    return state.planoContas.find((c) => c.ativa && c.aceitaLancamento && c.grupoDreId === gid)?.id;
+  }
   const pais = useMemo(
     () => state.categoriasFinanceiras.filter((c) => c.ativa && !c.parentId),
     [state.categoriasFinanceiras],
@@ -63,7 +66,7 @@ export function CategoriasPanel() {
               nome,
               tipo: parent?.tipo ?? tipo,
               grupoDreId: parent?.grupoDreId ?? (grupoDreId || undefined),
-              contaPlanoId: parent?.contaPlanoId ?? (contaPlanoId || undefined),
+              contaPlanoId: parent?.contaPlanoId ?? (grupoDreId ? contaDoGrupo(grupoDreId) : undefined),
               parentId: parentId || undefined,
               ativa: true,
             },
@@ -78,7 +81,11 @@ export function CategoriasPanel() {
         <Field label="Tipo">
           <Select
             value={tipo}
-            onChange={(e) => setTipo(e.target.value as TipoCategoriaFinanceira)}
+            onChange={(e) => {
+              const t = e.target.value as TipoCategoriaFinanceira;
+              setTipo(t);
+              setGrupo(grupos.find((g) => (t === "receita" ? g.tipo === "receita" : g.tipo === "despesa"))?.id ?? "");
+            }}
             disabled={!!parentId}
           >
             <option value="receita">Receita</option>
@@ -96,16 +103,8 @@ export function CategoriasPanel() {
         <Field label="Grupo DRE">
           <Select value={grupoDreId} onChange={(e) => setGrupo(e.target.value)} disabled={!!parentId}>
             <option value="">— não entra no DRE —</option>
-            {grupos.map((g) => (
+            {gruposDoTipo.map((g) => (
               <option key={g.id} value={g.id}>{g.codigo} · {g.nome}</option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Plano de contas">
-          <Select value={contaPlanoId} onChange={(e) => setConta(e.target.value)} disabled={!!parentId}>
-            <option value="">— opcional —</option>
-            {contasFolha.map((c) => (
-              <option key={c.id} value={c.id}>{c.codigo} · {c.nome}</option>
             ))}
           </Select>
         </Field>
@@ -121,10 +120,9 @@ export function CategoriasPanel() {
         <option value="sem_dre">Fora do DRE</option>
       </Select>
 
-      <DataTable headers={["Nome", "Tipo", "Grupo DRE", "Plano", "Padrões", "Status"]}>
+      <DataTable headers={["Nome", "Tipo", "Grupo DRE", "Padrões", "Status"]}>
         {rows.map((c) => {
           const g = state.gruposDre.find((x) => x.id === c.grupoDreId);
-          const p = state.planoContas.find((x) => x.id === c.contaPlanoId);
           const parent = state.categoriasFinanceiras.find((x) => x.id === c.parentId);
           const pads = [
             c.padraoVendas && "vendas",
@@ -140,8 +138,33 @@ export function CategoriasPanel() {
                 </span>
               </Td>
               <Td>{c.tipo === "receita" ? "Receita" : "Despesa/custo"}</Td>
-              <Td className="text-mute">{g ? g.nome : "—"}</Td>
-              <Td className="font-mono text-[11px] text-mute">{p?.codigo ?? "—"}</Td>
+              <Td className="text-mute">
+                {parent ? (
+                  g ? g.nome : "—"
+                ) : (
+                  <Select
+                    value={c.grupoDreId ?? ""}
+                    className="min-w-44"
+                    onChange={(e) =>
+                      dispatch({
+                        type: "SAVE_CATEGORIA",
+                        categoria: {
+                          ...c,
+                          grupoDreId: e.target.value || undefined,
+                          contaPlanoId: e.target.value ? contaDoGrupo(e.target.value) ?? c.contaPlanoId : undefined,
+                        },
+                      })
+                    }
+                  >
+                    <option value="">— fora do DRE —</option>
+                    {grupos
+                      .filter((x) => (c.tipo === "receita" ? x.tipo === "receita" : x.tipo !== "receita" && x.tipo !== "resultado"))
+                      .map((x) => (
+                        <option key={x.id} value={x.id}>{x.codigo} · {x.nome}</option>
+                      ))}
+                  </Select>
+                )}
+              </Td>
               <Td className="text-[11px] text-faint">{pads.length ? pads.join(", ") : "—"}</Td>
               <Td>
                 <div className="flex flex-wrap items-center justify-end gap-1.5">

@@ -753,20 +753,35 @@ export function Stat({
   );
 }
 
+export type TableHeader = string | { label: string; sortKey?: string };
+export type TableSort = { key: string; dir: "asc" | "desc" } | null;
+
+/** Clique alterna: crescente → decrescente → sem ordenação (estilo planilha). */
+export function nextSort(current: TableSort, key: string): TableSort {
+  if (!current || current.key !== key) return { key, dir: "asc" };
+  if (current.dir === "asc") return { key, dir: "desc" };
+  return null;
+}
+
 export function DataTable({
   headers,
   children,
+  sort,
+  onSort,
 }: {
-  headers: string[];
+  headers: TableHeader[];
   children: ReactNode;
+  sort?: TableSort;
+  onSort?: (next: TableSort) => void;
 }) {
+  const labels = headers.map((h) => (typeof h === "string" ? h : h.label));
   const rows = Children.map(children, (row) => {
     if (!isValidElement(row)) return row;
     const rowEl = row as ReactElement<{ children?: ReactNode; className?: string }>;
     const cells = Children.map(rowEl.props.children, (cell, i) => {
       if (!isValidElement(cell)) return cell;
       const cellEl = cell as ReactElement<{ label?: string }>;
-      return cloneElement(cellEl, { label: cellEl.props.label ?? headers[i] });
+      return cloneElement(cellEl, { label: cellEl.props.label ?? labels[i] });
     });
     return cloneElement(rowEl, { className: cn(rowEl.props.className) }, cells);
   });
@@ -776,11 +791,36 @@ export function DataTable({
       <table className="stack-table w-full text-left text-[13px] md:min-w-[640px]">
         <thead className="max-md:sr-only">
           <tr>
-            {headers.map((h) => (
-              <th key={h} className="kicker px-3 py-3">
-                {h}
-              </th>
-            ))}
+            {headers.map((h, i) => {
+              const key = typeof h === "string" ? undefined : h.sortKey;
+              const active = key && sort?.key === key ? sort.dir : null;
+              return (
+                <th
+                  key={`${labels[i]}-${i}`}
+                  className="kicker px-3 py-3"
+                  aria-sort={active === "asc" ? "ascending" : active === "desc" ? "descending" : undefined}
+                >
+                  {key && onSort ? (
+                    <button
+                      type="button"
+                      className={cn(
+                        "inline-flex cursor-pointer items-center gap-1 uppercase tracking-[inherit] hover:text-ink",
+                        active && "text-ink",
+                      )}
+                      onClick={() => onSort(nextSort(sort ?? null, key))}
+                      title="Ordenar"
+                    >
+                      {labels[i]}
+                      <span aria-hidden className="text-[9px]">
+                        {active === "asc" ? "▲" : active === "desc" ? "▼" : "↕"}
+                      </span>
+                    </button>
+                  ) : (
+                    labels[i]
+                  )}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody className="md:divide-y md:divide-line">{rows}</tbody>
@@ -816,22 +856,81 @@ export function Empty({ title, hint }: { title: string; hint?: string }) {
   );
 }
 
+export function Tabs<T extends string>({
+  value,
+  onChange,
+  items,
+  className,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  items: { id: T; label: string; count?: number }[];
+  className?: string;
+}) {
+  return (
+    <div
+      role="tablist"
+      className={cn("flex flex-wrap gap-1 rounded-md border border-line bg-panel p-1", className)}
+    >
+      {items.map((t) => {
+        const active = value === t.id;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(t.id)}
+            className={cn(
+              "min-h-9 rounded-md px-3 text-[13px] font-medium transition-colors",
+              active
+                ? "bg-elevated text-ink shadow-[inset_0_1px_0_rgb(255_255_255_/_0.06)]"
+                : "text-mute hover:text-ink",
+            )}
+          >
+            {t.label}
+            {typeof t.count === "number" ? <span className="ml-1 text-faint">({t.count})</span> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Modal({
   open,
   title,
   onClose,
   children,
+  size = "md",
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
+  size?: "md" | "lg" | "xl";
 }) {
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: globalThis.KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center md:px-4">
       <button type="button" className="scrim motion-fade-in absolute inset-0 bg-black/55" aria-label="Fechar" onClick={onClose} />
-      <div className="surface page-enter relative max-h-[90dvh] w-full overflow-y-auto rounded-t-md p-4 md:max-w-lg md:rounded-md">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={cn(
+          "surface page-enter relative max-h-[90dvh] w-full overflow-y-auto rounded-t-md p-4 md:rounded-md",
+          size === "md" ? "md:max-w-lg" : size === "lg" ? "md:max-w-2xl" : "md:max-w-4xl",
+        )}
+      >
         <div className="mb-3 flex items-center justify-between gap-3">
           <p className="text-[15px] font-semibold tracking-[-0.02em]">{title}</p>
           <button type="button" className="text-[12px] text-mute hover:text-ink" onClick={onClose}>

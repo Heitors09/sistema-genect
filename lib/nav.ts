@@ -1,7 +1,10 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Banknote,
   Boxes,
+  CalendarClock,
   ClipboardList,
+  Contact,
   GitBranch,
   LayoutDashboard,
   Layers,
@@ -13,6 +16,7 @@ import {
   Users,
   Wallet,
   ShoppingCart,
+  Landmark,
 } from "lucide-react";
 import type { Role } from "./types";
 
@@ -64,16 +68,29 @@ export const navGroups: NavGroup[] = [
     adminOnly: true,
     items: [
       { href: "/financeiro", label: "Visão gerencial", icon: Wallet },
-      { href: "/financeiro/receitas", label: "Receita de vendas", icon: TrendingUp },
+      { href: "/financeiro/receitas", label: "Receitas (vendas)", icon: TrendingUp },
       { href: "/financeiro/despesas", label: "Despesas", icon: Receipt },
+      { href: "/financeiro/fluxo-caixa", label: "Fluxo de caixa", icon: CalendarClock },
       { href: "/financeiro/plano-gerencial", label: "Plano gerencial", icon: Layers },
+    ],
+  },
+  {
+    id: "rh",
+    label: "Recursos Humanos",
+    adminOnly: true,
+    items: [
+      { href: "/rh", label: "Funcionários", icon: Contact },
+      { href: "/financeiro/folha", label: "Folha de pagamento", icon: Banknote },
     ],
   },
   {
     id: "cadastros",
     label: "Cadastros",
     adminOnly: true,
-    items: [{ href: "/cadastros", label: "Empresas e clientes", icon: Boxes }],
+    items: [
+      { href: "/cadastros", label: "Empresas e clientes", icon: Boxes },
+      { href: "/cadastros/contas-bancarias", label: "Contas bancárias", icon: Landmark },
+    ],
   },
   {
     id: "sistema",
