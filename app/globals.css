@@ -356,6 +356,52 @@ body {
   }
 }
 
+/* Pill da tab: bem visível; desliza entre as abas. */
+.tab-pill {
+  pointer-events: none;
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  border-radius: 0.375rem;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  box-shadow:
+    0 1px 2px rgb(40 36 30 / 0.08),
+    0 6px 16px rgb(40 36 30 / 0.12);
+}
+
+html[data-theme="dark"] .tab-pill,
+html:not([data-theme="light"]) .tab-pill {
+  background: #252632;
+  border-color: rgb(255 255 255 / 0.14);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 6px 18px rgb(0 0 0 / 0.45);
+}
+
+/* Cada bloco do painel: só fade (opacity), um pouco lento, em cascata. */
+.tab-fade-item {
+  animation: tab-fade-in 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Painéis flex (ex.: Kanban): o wrapper do fade não quebra o layout. */
+.tab-panel-root.flex > .tab-fade-item {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+@keyframes tab-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .scrim {
   transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -403,8 +449,10 @@ body {
   .notif-toast-out,
   .notif-toast-bar,
   .motion-fade-in,
-  .page-enter {
+  .page-enter,
+  .tab-fade-item {
     animation: none;
+    opacity: 1;
   }
 
   .motion-press:hover,

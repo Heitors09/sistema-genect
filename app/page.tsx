@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { MacroKanban, type PainelFiltro } from "@/components/board/macro-kanban";
 import { useKanbanFull } from "@/components/board/kanban-full";
-import { Badge, Button, ButtonLink, Input, PageHeader, cn } from "@/components/ui";
+import { Button, ButtonLink, Input, PageHeader, TabPanel, Tabs, cn } from "@/components/ui";
 import { opAtrasada } from "@/lib/prazos";
 import { useStore } from "@/lib/store/store";
 
@@ -36,13 +36,13 @@ export default function HomePage() {
 
   if (!isAdmin) return null;
 
-  const chips: { id: PainelFiltro; label: string; count: number; tone?: "rose" | "amber" | "sky" | "mute" }[] = [
+  const chips: { id: PainelFiltro; label: string; count: number }[] = [
     { id: "todas", label: "Em aberto", count: counts.aberta },
-    { id: "producao", label: "Em produção", count: counts.producao, tone: "sky" },
-    { id: "urgente", label: "Urgentes", count: counts.urgente, tone: "rose" },
-    { id: "prioridade", label: "Prioridade", count: counts.prioridade, tone: "amber" },
-    { id: "atrasada", label: "Atrasadas", count: counts.atrasada, tone: "rose" },
-    { id: "aguardando", label: "Aguardando / pendência", count: counts.aguardando, tone: "amber" },
+    { id: "producao", label: "Em produção", count: counts.producao },
+    { id: "urgente", label: "Urgentes", count: counts.urgente },
+    { id: "prioridade", label: "Prioridade", count: counts.prioridade },
+    { id: "atrasada", label: "Atrasadas", count: counts.atrasada },
+    { id: "aguardando", label: "Aguardando / pendência", count: counts.aguardando },
   ];
 
   return (
@@ -64,24 +64,12 @@ export default function HomePage() {
 
       <div className="flex w-full shrink-0 flex-col gap-2 md:flex-row md:items-center md:gap-4">
         <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-1.5">
-          <div className="-mx-0.5 flex gap-1.5 overflow-x-auto px-0.5 pb-0.5 [-webkit-overflow-scrolling:touch] md:flex-wrap md:overflow-visible md:pb-0">
-            {chips.map((chip) => (
-              <button
-                key={chip.id}
-                type="button"
-                onClick={() => setFiltro(chip.id)}
-                className={cn(
-                  "motion-press inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[12px] leading-none md:h-8",
-                  filtro === chip.id ? "border-line-strong bg-elevated text-ink" : "border-line text-mute hover:bg-elevated/60",
-                )}
-              >
-                {chip.label}
-                <Badge tone={chip.tone} size="sm">
-                  {chip.count}
-                </Badge>
-              </button>
-            ))}
-          </div>
+          <Tabs
+            value={filtro}
+            onChange={setFiltro}
+            className="max-w-full overflow-x-auto"
+            items={chips.map((c) => ({ id: c.id, label: c.label, count: c.count }))}
+          />
           <Input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
@@ -113,9 +101,9 @@ export default function HomePage() {
         </div>
       </div>
 
-      <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+      <TabPanel value={filtro} className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
         <MacroKanban filtro={filtro} busca={busca} />
-      </div>
+      </TabPanel>
     </div>
   );
 }

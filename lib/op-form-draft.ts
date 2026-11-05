@@ -1,5 +1,6 @@
 import type {
   AnexoOp,
+  CondicaoPagamentoOp,
   OpProdutoLinha,
   OpVariacao,
   RoteiroAresta,
@@ -35,6 +36,7 @@ export type OpNovaDraft = {
   extraLinhas: OpProdutoLinha[];
   fotos: string[];
   anexos: AnexoOp[];
+  pagamento?: CondicaoPagamentoOp;
   /** Preenchimento real do usuário — chip só aparece com isto. */
   dirty?: boolean;
 };

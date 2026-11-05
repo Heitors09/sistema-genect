@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
-import { brl, categoriaLabel, tipoNegocioLabel, todayISO, uid } from "@/lib/format";
+import { brl, categoriaLabel, formatDate, tipoNegocioLabel, todayISO, uid } from "@/lib/format";
+import { addDays, FORMAS_PAGAMENTO, formaPagamentoLabel, gerarParcelas } from "@/lib/financeiro";
+import { ParcelasEditor } from "../financeiro/parcelas-editor";
 import { readFiles } from "@/lib/files";
 import { consumoEmEstoque, linhasReserva, tecidoBase } from "@/lib/ficha";
 import { servicosDe, linhasValorServico } from "@/lib/migrate";
@@ -19,6 +21,9 @@ import { microsComGrafo } from "@/lib/roteiro-graph";
 import type {
   AnexoOp,
   BoardNode,
+  CondicaoPagamentoOp,
+  FormaPagamento,
+  ParcelaPrevista,
   OpProdutoLinha,
   OpVariacao,
   OrdemProducao,
@@ -131,6 +136,15 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
   const [extraLinhas, setExtraLinhas] = useState<OpProdutoLinha[]>(initial?.linhas.slice(1) ?? []);
   const [fotos, setFotos] = useState<string[]>(initial?.fotosFicha ?? []);
   const [anexos, setAnexos] = useState<AnexoOp[]>(initial?.anexos ?? []);
+  const [pagDataFat, setPagDataFat] = useState(
+    initial?.pagamento?.dataFaturamento ?? addDays(todayISO(), 30),
+  );
+  const [pagForma, setPagForma] = useState<FormaPagamento>(initial?.pagamento?.formaPagamento ?? "boleto");
+  const [pagPrazo, setPagPrazo] = useState(String(initial?.pagamento?.prazoDias ?? 0));
+  /** null = parcelas calculadas automaticamente pelo total e prazo. */
+  const [parcelasManual, setParcelasManual] = useState<ParcelaPrevista[] | null>(
+    initial?.pagamento?.parcelas?.length ? initial.pagamento.parcelas : null,
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [draftReady, setDraftReady] = useState(!!initial);
   const skipNextDraftWrite = useRef(true);
@@ -153,10 +167,11 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
     observacoes: "",
     loteId: "",
     roteiroId: "",
-    fluxo: { etapas: [] as FluxoEditorValue["etapas"], arestas: [] as FluxoEditorValue["arestas"], inicioId: undefined as string | undefined },
+    fluxo: { etapas: [], arestas: [] } as FluxoEditorValue,
     extraLinhas: [] as OpProdutoLinha[],
     fotos: [] as string[],
     anexos: [] as AnexoOp[],
+    pagamento: undefined as CondicaoPagamentoOp | undefined,
   });
 
   const produto = produtos.find((p) => p.id === produtoId);
@@ -177,6 +192,38 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
   const roteiro = state.roteiros.find((r) => r.id === roteiroId);
   const tamanhosProduto = produto ? tamanhosDoProduto(produto) : [];
   const coresProduto = produto?.cores ?? [];
+  /** Preço congelado na OP: edição de OP antiga mantém o preço original (reajuste só vale daqui pra frente). */
+  const precoBase =
+    initial && produto && initial.produtoId === produto.id
+      ? initial.precoUnitario || produto.precoVenda || 0
+      : produto?.precoVenda || 0;
+  const precoLinhaExtra = (l: OpProdutoLinha) => {
+    const anterior = initial?.linhas.find((x) => x.id === l.id && x.produtoId === l.produtoId);
+    if (anterior) return anterior.precoUnitario || 0;
+    return state.produtos.find((p) => p.id === l.produtoId)?.precoVenda || 0;
+  };
+  const valorVenda = Number(
+    (
+      precoBase * pecasProduto +
+      extraLinhas
+        .filter((l) => l.produtoId)
+        .reduce((a, l) => a + precoLinhaExtra(l) * (Number(l.quantidade) || 0), 0)
+    ).toFixed(2),
+  );
+  const primeiroVencimento = addDays(pagDataFat || todayISO(), Number(pagPrazo) || 0);
+  const parcelasAuto = useMemo(
+    () => gerarParcelas(valorVenda, 1, primeiroVencimento),
+    [valorVenda, primeiroVencimento],
+  );
+  const parcelas = parcelasManual ?? parcelasAuto;
+  const parcelasTouched = parcelasManual !== null;
+  const pagamentoAtual: CondicaoPagamentoOp = {
+    dataFaturamento: pagDataFat,
+    formaPagamento: pagForma,
+    prazoDias: Number(pagPrazo) || 0,
+    parcelas,
+  };
+
 
   useEffect(() => {
     if (!produto) return;
@@ -206,6 +253,8 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
     setProdutoId(id);
     setTipoTouched(false);
     const p = produtos.find((x) => x.id === id);
+    // Cliente vinculado ao produto já vem preenchido.
+    if (p?.clienteId && clientes.some((c) => c.id === p.clienteId)) setClienteId(p.clienteId);
     if (!p) {
       setGrade([]);
       setTamanho("");
@@ -242,6 +291,12 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
       setExtraLinhas(d.extraLinhas ?? []);
       setFotos(d.fotos ?? []);
       setAnexos(d.anexos ?? []);
+      if (d.pagamento) {
+        setPagDataFat(d.pagamento.dataFaturamento || addDays(todayISO(), 30));
+        setPagForma(d.pagamento.formaPagamento);
+        setPagPrazo(String(d.pagamento.prazoDias ?? 0));
+        if (d.pagamento.parcelas?.length) setParcelasManual(d.pagamento.parcelas);
+      }
       if (d.produtoId) {
         const p = produtosRef.current.find((x) => x.id === d.produtoId);
         setProdutoId(d.produtoId);
@@ -273,6 +328,7 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
     extraLinhas,
     fotos,
     anexos,
+    pagamento: { ...pagamentoAtual, parcelas: parcelasTouched ? parcelas : [] },
   };
 
   // Mantém rascunho em standby ao mudar de tela (produto, roteiro, etc.).
@@ -302,8 +358,13 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
       extraLinhas,
       fotos,
       anexos,
+      pagamento: { dataFaturamento: pagDataFat, formaPagamento: pagForma, prazoDias: Number(pagPrazo) || 0, parcelas: parcelasTouched ? parcelas : [] },
     });
   }, [
+    pagDataFat,
+    pagForma,
+    pagPrazo,
+    parcelasManual,
     initial,
     draftReady,
     numero,
@@ -455,7 +516,7 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
         if (!p) return l;
         return {
           ...l,
-          precoUnitario: p.precoVenda || 0,
+          precoUnitario: precoLinhaExtra(l),
           variacoes: gradeDoProduto(p, l.quantidade),
         };
       });
@@ -464,7 +525,7 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
         id: initial?.linhas[0]?.id ?? uid("lin"),
         produtoId: produto.id,
         quantidade: q,
-        precoUnitario: produto.precoVenda || 0,
+        precoUnitario: precoBase,
         tamanho: usandoVariacao
           ? gradeFinal.length === 1
             ? gradeFinal[0].tamanho || undefined
@@ -497,7 +558,7 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
         produto.cores[0] ||
         "",
       quantidade: total,
-      precoUnitario: produto.precoVenda || 0,
+      precoUnitario: precoBase,
       observacoes,
       terceirizadoIds,
       valorServicoPorPeca: total ? valorServicos / total : 0,
@@ -523,6 +584,10 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
         ? initial.microAtualId
         : microAtualId,
       pendencias: initial?.pendencias ?? [],
+      pagamento: {
+        ...pagamentoAtual,
+        parcelas: parcelas.length ? parcelas : gerarParcelas(valorVenda, 1, primeiroVencimento),
+      },
     };
     dispatch({ type: "SAVE_OP", op, isNew: !initial });
     if (!initial) {
@@ -556,6 +621,10 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
     setExtraLinhas([]);
     setFotos([]);
     setAnexos([]);
+    setPagDataFat(addDays(todayISO(), 30));
+    setPagForma("boleto");
+    setPagPrazo("0");
+    setParcelasManual(null);
     setErrors({});
     queueMicrotask(() => {
       suppressDraftRef.current = false;
@@ -633,7 +702,7 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
             </Select>
           </Field>
           <Field label="Preço unitário" hint="Opcional — vem do produto se houver">
-            <Input readOnly value={produto?.precoVenda ? brl.format(produto.precoVenda) : "Não informado"} className="cursor-default text-mute" />
+            <Input readOnly value={precoBase ? brl.format(precoBase) : "Não informado"} className="cursor-default text-mute" />
           </Field>
           {produto && temVariacoes ? (
             <div className="sm:col-span-2">
@@ -1039,6 +1108,56 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
             />
             {anexos.length ? <p className="text-[11px] text-faint">{anexos.map((a) => a.nome).join(", ")}</p> : null}
           </Field>
+        </div>
+
+        <div className="space-y-3 rounded-md border border-line p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <div>
+              <p className="kicker">Faturamento e pagamento</p>
+              <p className="mt-0.5 text-[11px] text-faint">Previsão de pagamento da OP</p>
+            </div>
+            <span className="text-[12px] tabular-nums text-mute">
+              Valor da OP <span className="font-medium text-ink">{brl.format(valorVenda)}</span>
+            </span>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Data de faturamento">
+              <DateInput value={pagDataFat} onChange={(e) => setPagDataFat(e.target.value)} />
+            </Field>
+            <Field label="Forma de pagamento">
+              <Select value={pagForma} onChange={(e) => setPagForma(e.target.value as FormaPagamento)}>
+                {FORMAS_PAGAMENTO.map((f) => (
+                  <option key={f} value={f}>{formaPagamentoLabel[f]}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Prazo (dias)" hint={`1º vencimento ${formatDate(primeiroVencimento)}`}>
+              <Input
+                type="number"
+                min={0}
+                value={pagPrazo}
+                onChange={(e) => setPagPrazo(e.target.value)}
+              />
+            </Field>
+          </div>
+          <ParcelasEditor
+            total={valorVenda}
+            primeiroVencimento={primeiroVencimento}
+            value={parcelas}
+            onChange={setParcelasManual}
+          />
+          {parcelasTouched ? (
+            <button
+              type="button"
+              className="text-left text-[11px] text-sky hover:underline"
+              onClick={() => setParcelasManual(null)}
+            >
+              Voltar ao cálculo automático
+            </button>
+          ) : null}
+          <p className="text-[11px] text-faint">
+            Prazo e parcelas vão para Receitas como vencimento do valor a receber ao faturar.
+          </p>
         </div>
 
         {initial ? (

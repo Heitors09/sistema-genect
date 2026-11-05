@@ -2,7 +2,7 @@ import { stageColors } from "../format";
 import { migrateState } from "../migrate";
 import type { AppState } from "../types";
 
-export const STORE_KEY = "genecthub-state-v7";
+export const STORE_KEY = "genecthub-state-v8";
 
 const FILL_TEMPLATES = [
   {
@@ -628,7 +628,11 @@ const rawSeed = {
       empresaId: "emp-genect",
       descricao: "Folha · Maria Costa",
       origem: "folha",
-      origemId: "folha-1",
+      origemId: "sal:fun-maria:2026-09",
+      funcionarioId: "fun-maria",
+      tipoFolha: "salario",
+      formaPagamento: "pix",
+      contaBancariaId: "cb-genect-itau",
       valor: 3200,
       vencimento: "2026-09-05",
       competencia: "2026-09",
@@ -639,9 +643,12 @@ const rawSeed = {
     {
       id: "cp-5",
       empresaId: "emp-genect",
-      descricao: "Folha · João Pedro",
+      descricao: "Salário 2026-09 · João Pedro",
       origem: "folha",
-      origemId: "folha-2",
+      origemId: "sal:fun-joao:2026-09",
+      funcionarioId: "fun-joao",
+      tipoFolha: "salario",
+      formaPagamento: "pix",
       valor: 2800,
       vencimento: "2026-09-05",
       competencia: "2026-09",
@@ -827,6 +834,79 @@ const rawSeed = {
   notificacoes: [],
   recibos: [],
   acertosTerceirizado: [],
+  funcionarios: [
+    {
+      id: "fun-maria",
+      empresaId: "emp-genect",
+      nome: "Maria Costa",
+      cargo: "Costureira",
+      salarioMensal: 3200,
+      dataAdmissao: "2024-03-01",
+      diaPagamento: 5,
+      contaBancariaId: "cb-genect-itau",
+    },
+    {
+      id: "fun-joao",
+      empresaId: "emp-genect",
+      nome: "João Pedro",
+      cargo: "Cortador",
+      salarioMensal: 2800,
+      dataAdmissao: "2025-01-15",
+      diaPagamento: 5,
+      contaBancariaId: "cb-genect-itau",
+    },
+    {
+      id: "fun-ana",
+      empresaId: "emp-genect",
+      nome: "Ana Ribeiro",
+      cargo: "Auxiliar de expedição",
+      salarioMensal: 2100,
+      dataAdmissao: "2023-06-01",
+      dataDemissao: "2026-08-31",
+      diaPagamento: 5,
+    },
+  ],
+  faltas: [
+    {
+      id: "fal-1",
+      funcionarioId: "fun-joao",
+      data: "2026-10-14",
+      competencia: "2026-10",
+      justificada: false,
+      motivo: "Sem aviso",
+    },
+  ],
+  contasBancarias: [
+    {
+      id: "cb-genect-itau",
+      empresaId: "emp-genect",
+      nome: "Itaú PJ",
+      banco: "Itaú",
+      agencia: "0412",
+      conta: "45120-3",
+      tipo: "corrente",
+      saldoInicial: 25000,
+      ativa: true,
+    },
+    {
+      id: "cb-genect-caixa",
+      empresaId: "emp-genect",
+      nome: "Caixa da loja",
+      banco: "—",
+      tipo: "caixa",
+      saldoInicial: 1500,
+      ativa: true,
+    },
+    {
+      id: "cb-atelier-nubank",
+      empresaId: "emp-atelier",
+      nome: "Nubank PJ",
+      banco: "Nubank",
+      tipo: "corrente",
+      saldoInicial: 8000,
+      ativa: true,
+    },
+  ],
   categoriasInsumo: [],
   tamanhosPadrao: [],
   coresPadrao: [],

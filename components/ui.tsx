@@ -3,6 +3,7 @@
 import {
   Children,
   cloneElement,
+  Fragment,
   isValidElement,
   useEffect,
   useId,
@@ -186,19 +187,21 @@ export function DateInput({
   }, []);
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState(false);
+  const [wasOpen, setWasOpen] = useState(false);
   const [cursor, setCursor] = useState(() => selected ?? today);
   const rootRef = useRef<HTMLDivElement>(null);
   const cells = useMemo(() => calendarCells(cursor), [cursor]);
 
-  useEffect(() => {
-    if (open) setCursor(parseISODate(current) ?? today);
-  }, [open, current, today]);
-
-  useEffect(() => {
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setPanel(true);
-      return;
+      setCursor(parseISODate(current) ?? today);
     }
+  }
+
+  useEffect(() => {
+    if (open) return;
     const t = window.setTimeout(() => setPanel(false), 160);
     return () => window.clearTimeout(t);
   }, [open]);
@@ -430,21 +433,23 @@ export function Select({
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState(false);
+  const [wasOpen, setWasOpen] = useState(false);
   const options = useMemo(() => collectOptions(children), [children]);
   const current = String(value ?? "");
   const selected = options.find((o) => o.value === current) ?? options[0];
   const selectedIndex = Math.max(0, options.findIndex((o) => o.value === current));
   const [active, setActive] = useState(selectedIndex);
 
-  useEffect(() => {
-    if (open) setActive(selectedIndex);
-  }, [open, selectedIndex]);
-
-  useEffect(() => {
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setPanel(true);
-      return;
+      setActive(selectedIndex);
     }
+  }
+
+  useEffect(() => {
+    if (open) return;
     const t = window.setTimeout(() => setPanel(false), 160);
     return () => window.clearTimeout(t);
   }, [open]);
@@ -753,20 +758,35 @@ export function Stat({
   );
 }
 
+export type TableHeader = string | { label: string; sortKey?: string };
+export type TableSort = { key: string; dir: "asc" | "desc" } | null;
+
+/** Clique alterna: crescente → decrescente → sem ordenação (estilo planilha). */
+export function nextSort(current: TableSort, key: string): TableSort {
+  if (!current || current.key !== key) return { key, dir: "asc" };
+  if (current.dir === "asc") return { key, dir: "desc" };
+  return null;
+}
+
 export function DataTable({
   headers,
   children,
+  sort,
+  onSort,
 }: {
-  headers: string[];
+  headers: TableHeader[];
   children: ReactNode;
+  sort?: TableSort;
+  onSort?: (next: TableSort) => void;
 }) {
+  const labels = headers.map((h) => (typeof h === "string" ? h : h.label));
   const rows = Children.map(children, (row) => {
     if (!isValidElement(row)) return row;
     const rowEl = row as ReactElement<{ children?: ReactNode; className?: string }>;
     const cells = Children.map(rowEl.props.children, (cell, i) => {
       if (!isValidElement(cell)) return cell;
       const cellEl = cell as ReactElement<{ label?: string }>;
-      return cloneElement(cellEl, { label: cellEl.props.label ?? headers[i] });
+      return cloneElement(cellEl, { label: cellEl.props.label ?? labels[i] });
     });
     return cloneElement(rowEl, { className: cn(rowEl.props.className) }, cells);
   });
@@ -776,11 +796,36 @@ export function DataTable({
       <table className="stack-table w-full text-left text-[13px] md:min-w-[640px]">
         <thead className="max-md:sr-only">
           <tr>
-            {headers.map((h) => (
-              <th key={h} className="kicker px-3 py-3">
-                {h}
-              </th>
-            ))}
+            {headers.map((h, i) => {
+              const key = typeof h === "string" ? undefined : h.sortKey;
+              const active = key && sort?.key === key ? sort.dir : null;
+              return (
+                <th
+                  key={`${labels[i]}-${i}`}
+                  className="kicker px-3 py-3"
+                  aria-sort={active === "asc" ? "ascending" : active === "desc" ? "descending" : undefined}
+                >
+                  {key && onSort ? (
+                    <button
+                      type="button"
+                      className={cn(
+                        "inline-flex cursor-pointer items-center gap-1 uppercase tracking-[inherit] hover:text-ink",
+                        active && "text-ink",
+                      )}
+                      onClick={() => onSort(nextSort(sort ?? null, key))}
+                      title="Ordenar"
+                    >
+                      {labels[i]}
+                      <span aria-hidden className="text-[9px]">
+                        {active === "asc" ? "▲" : active === "desc" ? "▼" : "↕"}
+                      </span>
+                    </button>
+                  ) : (
+                    labels[i]
+                  )}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody className="md:divide-y md:divide-line">{rows}</tbody>
@@ -816,22 +861,185 @@ export function Empty({ title, hint }: { title: string; hint?: string }) {
   );
 }
 
+export function Tabs<T extends string>({
+  value,
+  onChange,
+  items,
+  className,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  items: { id: T; label: string; count?: number }[];
+  className?: string;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const btnRefs = useRef(new Map<T, HTMLButtonElement>());
+  const [pill, setPill] = useState({ x: 0, y: 0, w: 0, h: 0, visible: false });
+  const canAnimate = useRef(false);
+  const [motionOn, setMotionOn] = useState(false);
+  const rafRef = useRef(0);
+  const itemsKey = items.map((i) => `${i.id}:${i.label}:${i.count ?? ""}`).join("|");
+
+  useEffect(() => {
+    function place() {
+      const list = listRef.current;
+      const btn = btnRefs.current.get(value);
+      if (!list || !btn) return;
+      const lr = list.getBoundingClientRect();
+      const br = btn.getBoundingClientRect();
+      setPill({
+        x: br.left - lr.left + list.scrollLeft,
+        y: br.top - lr.top + list.scrollTop,
+        w: br.width,
+        h: br.height,
+        visible: true,
+      });
+      if (!canAnimate.current) {
+        canAnimate.current = true;
+        // Próximo frame: liga transition (evita pular na 1ª pintura).
+        requestAnimationFrame(() => setMotionOn(true));
+      }
+    }
+
+    const id = requestAnimationFrame(place);
+    const list = listRef.current;
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(place);
+    }) : null;
+    if (list && ro) ro.observe(list);
+    window.addEventListener("resize", place, { passive: true });
+    return () => {
+      cancelAnimationFrame(id);
+      cancelAnimationFrame(rafRef.current);
+      ro?.disconnect();
+      window.removeEventListener("resize", place);
+    };
+  }, [value, itemsKey]);
+
+  const pillTransition = motionOn
+    ? "transform 480ms cubic-bezier(0.22, 1, 0.36, 1), width 480ms cubic-bezier(0.22, 1, 0.36, 1), height 480ms cubic-bezier(0.22, 1, 0.36, 1)"
+    : "none";
+
+  return (
+    <div
+      ref={listRef}
+      role="tablist"
+      className={cn("relative flex flex-wrap gap-1 rounded-md border border-line bg-panel p-1", className)}
+    >
+      <span
+        aria-hidden
+        className="tab-pill"
+        style={{
+          width: pill.w,
+          height: pill.h,
+          opacity: pill.visible ? 1 : 0,
+          transform: `translate3d(${pill.x}px, ${pill.y}px, 0)`,
+          transition: pillTransition,
+        }}
+      />
+      {items.map((t) => {
+        const active = value === t.id;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            ref={(el) => {
+              if (el) btnRefs.current.set(t.id, el);
+              else btnRefs.current.delete(t.id);
+            }}
+            onClick={() => onChange(t.id)}
+            className={cn(
+              "relative z-[1] min-h-9 rounded-md px-3 text-[13px] font-medium transition-colors duration-300",
+              active ? "text-ink" : "text-mute hover:text-ink",
+            )}
+          >
+            {t.label}
+            {typeof t.count === "number" ? <span className="ml-1 text-faint">({t.count})</span> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Achata Fragments aninhados (ternário + `<>...</>`) para animar cada bloco. */
+function flattenNodes(nodes: ReactNode): ReactNode[] {
+  const out: ReactNode[] = [];
+  Children.forEach(nodes, (child) => {
+    if (child == null || child === false || child === true) return;
+    if (isValidElement(child) && child.type === Fragment) {
+      out.push(...flattenNodes((child.props as { children?: ReactNode }).children));
+      return;
+    }
+    out.push(child);
+  });
+  return out;
+}
+
+/** Conteúdo da aba: cada filho faz fade 0→1 (só opacity) ao trocar `value`. */
+export function TabPanel({
+  value,
+  children,
+  className,
+}: {
+  value: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  const nodes = flattenNodes(children);
+
+  return (
+    <div role="tabpanel" className={cn("tab-panel-root", className)}>
+      {nodes.map((child, i) => (
+        <div
+          key={`${value}-${i}`}
+          className="tab-fade-item"
+          style={{ animationDelay: `${i * 80}ms` }}
+        >
+          {child}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Modal({
   open,
   title,
   onClose,
   children,
+  size = "md",
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
+  size?: "md" | "lg" | "xl";
 }) {
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: globalThis.KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center md:px-4">
       <button type="button" className="scrim motion-fade-in absolute inset-0 bg-black/55" aria-label="Fechar" onClick={onClose} />
-      <div className="surface page-enter relative max-h-[90dvh] w-full overflow-y-auto rounded-t-md p-4 md:max-w-lg md:rounded-md">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={cn(
+          "surface page-enter relative max-h-[90dvh] w-full overflow-y-auto rounded-t-md p-4 md:rounded-md",
+          size === "md" ? "md:max-w-lg" : size === "lg" ? "md:max-w-2xl" : "md:max-w-4xl",
+        )}
+      >
         <div className="mb-3 flex items-center justify-between gap-3">
           <p className="text-[15px] font-semibold tracking-[-0.02em]">{title}</p>
           <button type="button" className="text-[12px] text-mute hover:text-ink" onClick={onClose}>

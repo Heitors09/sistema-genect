@@ -23,10 +23,11 @@ import {
   valorMicroTerceirizado,
 } from "@/lib/terceirizado-ops";
 import { AcertoControls } from "@/components/terceirizados/acerto-controls";
+import { ServicosLista } from "@/components/terceirizados/servicos-lista";
 import { Badge, Button, Card, Field, Input, PageHeader, cn } from "@/components/ui";
 import { useStore } from "@/lib/store/store";
 
-type Aba = "ativas" | "historico" | "servicos";
+type Aba = "lista" | "ativas" | "historico" | "servicos";
 
 export default function TerceirizadoDetailPage({
   params,
@@ -35,7 +36,7 @@ export default function TerceirizadoDetailPage({
 }) {
   const { id } = use(params);
   const { state, currentUser, isAdmin, dispatch } = useStore();
-  const [aba, setAba] = useState<Aba>("ativas");
+  const [aba, setAba] = useState<Aba>("lista");
   const [novoServico, setNovoServico] = useState("");
   const [novoValor, setNovoValor] = useState("");
 
@@ -109,6 +110,7 @@ export default function TerceirizadoDetailPage({
   }
 
   const tabs: { id: Aba; label: string; count?: number }[] = [
+    { id: "lista", label: "Com ele / voltou" },
     { id: "ativas", label: "OPs ativas", count: ativas.length },
     { id: "historico", label: "Histórico", count: historico.length },
     { id: "servicos", label: "Serviços", count: servicos.length },
@@ -137,7 +139,7 @@ export default function TerceirizadoDetailPage({
         />
       </div>
 
-      <div className="flex h-9 max-w-lg overflow-hidden rounded-md border border-line">
+      <div className="flex h-9 max-w-2xl overflow-hidden rounded-md border border-line">
         {tabs.map((t, i) => (
           <button
             key={t.id}
@@ -156,6 +158,8 @@ export default function TerceirizadoDetailPage({
           </button>
         ))}
       </div>
+
+      {aba === "lista" ? <ServicosLista terceirizadoId={id} /> : null}
 
       {aba === "ativas" ? (
         <section className="space-y-2">

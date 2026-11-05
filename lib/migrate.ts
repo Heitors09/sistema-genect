@@ -25,6 +25,13 @@ import type {
   Terceirizado,
 } from "./types";
 
+/** Vínculo produto → cliente dos dados de demonstração. */
+const SEED_PRODUTO_CLIENTE: Record<string, string> = {
+  "prod-vestido": "cli-aurora",
+  "prod-camiseta": "cli-delpaz",
+  "prod-calca": "cli-casa",
+};
+
 function mergeGruposDre(existing: GrupoDre[] | undefined): GrupoDre[] {
   const byId = new Map((existing ?? []).map((g) => [g.id, g]));
   for (const g of DEFAULT_GRUPOS_DRE) {
@@ -297,6 +304,8 @@ export function migrateState(raw: AppState): AppState {
       id: p.id,
       referencia: p.referencia,
       nome: p.nome,
+      clienteId: p.clienteId ?? SEED_PRODUTO_CLIENTE[p.id],
+      historicoPreco: p.historicoPreco ?? [],
       tipoNegocio: p.tipoNegocio ?? "servico",
       categoria: p.categoria ?? "",
       linha: p.linha ?? "",
@@ -488,5 +497,12 @@ export function migrateState(raw: AppState): AppState {
     contasPagar,
     contasReceber,
     folhasPagamento: raw.folhasPagamento ?? [],
+    funcionarios: (raw.funcionarios ?? []).map((f) => ({
+      ...f,
+      diaPagamento: f.diaPagamento || 5,
+      salarioMensal: f.salarioMensal ?? 0,
+    })),
+    faltas: raw.faltas ?? [],
+    contasBancarias: raw.contasBancarias ?? [],
   };
 }

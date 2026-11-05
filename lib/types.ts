@@ -60,6 +60,31 @@ export interface Empresa {
   cidade?: string;
   uf?: string;
   ativa: boolean;
+  fiscal?: FiscalEmpresa;
+}
+
+export type RegimeTributario = "simples_nacional" | "mei" | "lucro_presumido" | "lucro_real";
+
+export interface IntegracoesEmpresa {
+  /** Emissão de NF-e / NFS-e via API. */
+  notaFiscal: boolean;
+  /** Conciliação bancária / Open Finance. */
+  bancos: boolean;
+  /** Envio de lançamentos à contabilidade. */
+  contabilidade: boolean;
+  provedor?: string;
+  apiToken?: string;
+}
+
+export interface FiscalEmpresa {
+  regimeTributario?: RegimeTributario;
+  /** Anexo do Simples (I a V). */
+  anexoSimples?: string;
+  /** Faixa de enquadramento (1ª a 6ª). */
+  faixaEnquadramento?: string;
+  inscricaoEstadual?: string;
+  inscricaoMunicipal?: string;
+  integracoes?: IntegracoesEmpresa;
 }
 
 export interface Cliente {
@@ -144,10 +169,21 @@ export interface GradeVariacao {
   cores: string[];
 }
 
+export interface ReajustePreco {
+  id: string;
+  data: string;
+  de: number;
+  para: number;
+  motivo?: string;
+}
+
 export interface Produto {
   id: string;
   referencia: string;
   nome: string;
+  /** Cliente dono do modelo — preenche a OP automaticamente. */
+  clienteId?: string;
+  historicoPreco?: ReajustePreco[];
   tipoNegocio: TipoNegocio;
   categoria: string;
   linha: string;
@@ -218,6 +254,15 @@ export interface MicroEtapa {
   y?: number;
   /** Id da micro na OP mãe (quando esta etapa veio de um split). */
   origemMicroId?: string;
+  /** Devoluções (entregas parciais) do terceirizado. */
+  entregas?: EntregaParcial[];
+}
+
+export interface EntregaParcial {
+  id: string;
+  data: string;
+  quantidade: number;
+  nota?: string;
 }
 
 export interface RoteiroEtapaDef {
@@ -253,6 +298,33 @@ export interface PendenciaOp {
   texto: string;
   autor: string;
   createdAt: string;
+}
+
+export type FormaPagamento =
+  | "pix"
+  | "boleto"
+  | "transferencia"
+  | "dinheiro"
+  | "cartao_credito"
+  | "cartao_debito"
+  | "cheque"
+  | "debito_automatico";
+
+export interface ParcelaPrevista {
+  id: string;
+  numero: number;
+  valor: number;
+  vencimento: string;
+}
+
+/** Condição comercial da OP: previsão de faturamento e recebimento. */
+export interface CondicaoPagamentoOp {
+  /** Data prevista para a OP ser paga / faturada. */
+  dataFaturamento: string;
+  formaPagamento: FormaPagamento;
+  /** Prazo em dias a partir da data de faturamento (ex.: 30). */
+  prazoDias: number;
+  parcelas: ParcelaPrevista[];
 }
 
 export interface OrdemProducao {
@@ -291,6 +363,8 @@ export interface OrdemProducao {
   /** Nó atual no fluxograma (desta OP). */
   microAtualId?: string;
   pendencias: PendenciaOp[];
+  /** Previsão de faturamento, forma de pagamento, prazo e parcelas. */
+  pagamento?: CondicaoPagamentoOp;
 }
 
 export interface BoardNode {
@@ -342,7 +416,7 @@ export interface PlanoConta {
 }
 
 /**
- * Categoria financeira usada no lançamento.
+ * Categoria financeira usada no lançamento: nome + tipo + grupo DRE.
  * Sem grupo DRE, a categoria não entra no DRE.
  */
 export interface CategoriaFinanceira {
@@ -351,6 +425,7 @@ export interface CategoriaFinanceira {
   tipo: TipoCategoriaFinanceira;
   grupoDreId?: string;
   contaPlanoId?: string;
+  /** @deprecated Hierarquia removida; categorias são planas. */
   parentId?: string;
   ativa: boolean;
   padraoVendas?: boolean;
@@ -359,12 +434,33 @@ export interface CategoriaFinanceira {
   padraoPagar?: boolean;
 }
 
+/** Tipo de lançamento de folha (despesa com funcionário). */
+export type TipoFolha = "salario" | "adiantamento" | "bonificacao" | "vale" | "rescisao" | "outros";
+
+/** Posição da parcela num lançamento parcelado/recorrente. */
+export interface ParcelaInfo {
+  grupoId: string;
+  numero: number;
+  total: number;
+}
+
 export interface ContaPagar {
   id: string;
   empresaId: string;
   descricao: string;
   origem: OrigemFinanceira;
   origemId?: string;
+  /** Fornecedor (cadastro) ou cliente, quando a despesa é com cliente. */
+  fornecedorId?: string;
+  clienteId?: string;
+  /** Favorecido livre quando não há cadastro. */
+  favorecido?: string;
+  formaPagamento?: FormaPagamento;
+  contaBancariaId?: string;
+  parcela?: ParcelaInfo;
+  /** Despesa com funcionário (folha). */
+  funcionarioId?: string;
+  tipoFolha?: TipoFolha;
   /** Categoria financeira — define grupo DRE. */
   categoriaId?: string;
   /** Conta do plano (espelho da categoria). */
@@ -387,6 +483,11 @@ export interface ContaReceber {
   origem: OrigemFinanceira;
   origemId?: string;
   opId?: string;
+  /** Todas as OPs incluídas neste faturamento (faturamento conjunto). */
+  opIds?: string[];
+  formaPagamento?: FormaPagamento;
+  contaBancariaId?: string;
+  parcela?: ParcelaInfo;
   categoriaId?: string;
   contaPlanoId?: string;
   valor: number;
@@ -407,6 +508,46 @@ export interface FolhaPagamento {
   pago: boolean;
   pagoEm?: string;
   contaPagarId?: string;
+}
+
+export interface Funcionario {
+  id: string;
+  empresaId: string;
+  nome: string;
+  cpf?: string;
+  cargo: string;
+  salarioMensal: number;
+  dataAdmissao: string;
+  /** Preenchida na demissão — o cadastro continua para histórico. */
+  dataDemissao?: string;
+  /** Dia do mês em que o salário vence (1–28). */
+  diaPagamento: number;
+  contaBancariaId?: string;
+  observacoes?: string;
+}
+
+export interface FaltaFuncionario {
+  id: string;
+  funcionarioId: string;
+  data: string;
+  /** Competência AAAA-MM em que a falta impacta o salário. */
+  competencia: string;
+  justificada: boolean;
+  motivo?: string;
+}
+
+export type TipoContaBancaria = "corrente" | "poupanca" | "caixa" | "cartao" | "investimento";
+
+export interface ContaBancaria {
+  id: string;
+  empresaId: string;
+  nome: string;
+  banco: string;
+  agencia?: string;
+  conta?: string;
+  tipo: TipoContaBancaria;
+  saldoInicial: number;
+  ativa: boolean;
 }
 
 export interface Faturamento {
@@ -523,6 +664,9 @@ export interface AppState {
   notificacoes: Notificacao[];
   recibos: ReciboTerceirizado[];
   acertosTerceirizado: AcertoTerceirizado[];
+  funcionarios: Funcionario[];
+  faltas: FaltaFuncionario[];
+  contasBancarias: ContaBancaria[];
   categoriasInsumo: string[];
   tamanhosPadrao: string[];
   coresPadrao: string[];

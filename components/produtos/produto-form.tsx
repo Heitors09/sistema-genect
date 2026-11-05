@@ -20,6 +20,7 @@ export function ProdutoForm({ initial, voltar }: { initial?: Produto; voltar?: s
   const { state, dispatch, isAdmin } = useStore();
   const [referencia, setReferencia] = useState(initial?.referencia ?? "");
   const [nome, setNome] = useState(initial?.nome ?? "");
+  const [clienteId, setClienteId] = useState(initial?.clienteId ?? "");
   const [tipoNegocio, setTipoNegocio] = useState<TipoNegocio>(initial?.tipoNegocio ?? "servico");
   const [categoria, setCategoria] = useState(initial?.categoria ?? "");
   const [linha, setLinha] = useState(initial?.linha ?? "");
@@ -125,6 +126,8 @@ export function ProdutoForm({ initial, voltar }: { initial?: Produto; voltar?: s
       id: initial?.id ?? uid("prod"),
       referencia: referencia.trim(),
       nome: nome.trim(),
+      clienteId: clienteId || undefined,
+      historicoPreco: initial?.historicoPreco ?? [],
       tipoNegocio,
       categoria: categoria.trim(),
       linha: linha.trim(),
@@ -151,6 +154,21 @@ export function ProdutoForm({ initial, voltar }: { initial?: Produto; voltar?: s
         </Field>
         <Field label="Nome do modelo" error={errors.nome}>
           <Input value={nome} onChange={(e) => setNome(e.target.value)} required />
+        </Field>
+        <Field label="Cliente" hint="Ao escolher este produto na OP, o cliente vem preenchido">
+          <CreatableSelect
+            value={clienteId}
+            emptyLabel="Sem cliente vinculado"
+            addLabel="+ Novo cliente"
+            addPlaceholder="Nome do cliente"
+            options={state.clientes.filter((c) => c.ativo).map((c) => ({ value: c.id, label: c.nome }))}
+            onChange={setClienteId}
+            onAdd={(nomeCli) => {
+              const id = uid("cli");
+              dispatch({ type: "SAVE_CLIENTE", cliente: { id, nome: nomeCli, ativo: true } });
+              setClienteId(id);
+            }}
+          />
         </Field>
         <Field label="Modelo de negócio">
           <Select value={tipoNegocio} onChange={(e) => setTipoNegocio(e.target.value as TipoNegocio)}>

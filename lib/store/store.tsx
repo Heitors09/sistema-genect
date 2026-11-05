@@ -14,6 +14,7 @@ import {
 } from "react";
 import { CATEGORIA_IDS, PLANO_CONTA_IDS } from "../dre-defaults";
 import { competenciaAtual, stageColors, todayISO, uid } from "../format";
+import { sincronizarSalarios } from "../financeiro";
 import { migrateState, servicosDe, valorServicoTerceirizado, valorServicosOp } from "../migrate";
 import { notifyLive } from "../notif-live";
 import {
@@ -31,11 +32,15 @@ import type {
   BoardNode,
   Cliente,
   CategoriaFinanceira,
+  ContaBancaria,
   ContaPagar,
   ContaReceber,
   Empresa,
+  FaltaFuncionario,
   FolhaPagamento,
+  FormaPagamento,
   Fornecedor,
+  Funcionario,
   GrupoDre,
   Insumo,
   MicroEtapa,
@@ -161,9 +166,76 @@ type Action =
   | { type: "TOGGLE_FOLHA_PAGO"; id: string; pago: boolean; data?: string }
   | { type: "GERAR_ACERTO_FACCAO"; opId: string; vencimento: string }
   | { type: "BAIXA_ATADO"; opId: string; atadoId: string }
-  | { type: "SAVE_ACERTO_TERCEIRIZADO"; acerto: AcertoTerceirizado };
+  | { type: "SAVE_ACERTO_TERCEIRIZADO"; acerto: AcertoTerceirizado }
+  | { type: "SAVE_CONTAS_PAGAR"; contas: ContaPagar[] }
+  | { type: "SAVE_FUNCIONARIO"; funcionario: Funcionario }
+  | { type: "SAVE_FALTA"; falta: FaltaFuncionario }
+  | { type: "REMOVE_FALTA"; id: string }
+  | { type: "GERAR_SALARIOS"; competencias: string[] }
+  | { type: "SAVE_CONTA_BANCARIA"; conta: ContaBancaria }
+  | {
+      type: "FATURAR_OPS";
+      opIds: string[];
+      dataFaturamento: string;
+      competencia: string;
+      formaPagamento: FormaPagamento;
+      contaBancariaId?: string;
+      parcelas: { valor: number; vencimento: string }[];
+    }
+  | {
+      type: "REAJUSTAR_PRECOS";
+      clienteId: string;
+      modo: "percentual" | "valor";
+      valor: number;
+      produtoIds?: string[];
+      motivo?: string;
+    }
+  | {
+      type: "REGISTRAR_ENTREGA";
+      opId: string;
+      microId: string;
+      quantidade: number;
+      data: string;
+      nota?: string;
+    }
+  | { type: "REMOVER_ENTREGA"; opId: string; microId: string; entregaId: string };
 
-const PREV_STORE_KEYS = ["genecthub-state-v6", "genecthub-state-v5"];
+const PREV_STORE_KEYS = ["genecthub-state-v7", "genecthub-state-v6", "genecthub-state-v5"];
+
+const CATEGORIA_FOLHA = { categoriaId: CATEGORIA_IDS.folha, contaPlanoId: PLANO_CONTA_IDS.folha };
+
+/** Competências cujo salário deve ser recalculado após a ação. */
+function competenciasAfetadas(state: AppState, action: Action): string[] | null {
+  switch (action.type) {
+    case "HYDRATE":
+      return null;
+    case "SAVE_FUNCIONARIO":
+      return [competenciaAtual()];
+    case "SAVE_FALTA":
+      return [action.falta.competencia];
+    case "REMOVE_FALTA": {
+      const f = state.faltas.find((x) => x.id === action.id);
+      return f ? [f.competencia] : null;
+    }
+    case "SAVE_CONTA_PAGAR":
+      return action.conta.funcionarioId ? [action.conta.competencia] : null;
+    case "SAVE_CONTAS_PAGAR": {
+      const comps = action.contas.filter((c) => c.funcionarioId).map((c) => c.competencia);
+      return comps.length ? comps : null;
+    }
+    case "GERAR_SALARIOS":
+      return action.competencias;
+    default:
+      return null;
+  }
+}
+
+function reducer(state: AppState, action: Action): AppState {
+  const next = coreReducer(state, action);
+  const comps = competenciasAfetadas(state, action);
+  if (!comps) return next;
+  return sincronizarSalarios(next, comps, CATEGORIA_FOLHA);
+}
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 function normalizeStored(raw: AppState): AppState {
@@ -215,7 +287,7 @@ function consumeForOp(state: AppState, op: OrdemProducao, mode: "reserve" | "rel
   return { ...state, insumos };
 }
 
-function reducer(state: AppState, action: Action): AppState {
+function coreReducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "HYDRATE": {
       const incoming = new Set(action.payload.ops.map((o) => o.id));
@@ -1427,6 +1499,176 @@ function reducer(state: AppState, action: Action): AppState {
             : o,
         ),
       };
+    case "SAVE_CONTAS_PAGAR": {
+      const ids = new Set(action.contas.map((c) => c.id));
+      return {
+        ...state,
+        contasPagar: [
+          ...action.contas,
+          ...state.contasPagar.filter((c) => !ids.has(c.id)),
+        ],
+      };
+    }
+    case "SAVE_FUNCIONARIO": {
+      const exists = state.funcionarios.some((f) => f.id === action.funcionario.id);
+      return {
+        ...state,
+        funcionarios: exists
+          ? state.funcionarios.map((f) => (f.id === action.funcionario.id ? action.funcionario : f))
+          : [action.funcionario, ...state.funcionarios],
+      };
+    }
+    case "SAVE_FALTA": {
+      const exists = state.faltas.some((f) => f.id === action.falta.id);
+      return {
+        ...state,
+        faltas: exists
+          ? state.faltas.map((f) => (f.id === action.falta.id ? action.falta : f))
+          : [action.falta, ...state.faltas],
+      };
+    }
+    case "REMOVE_FALTA":
+      return { ...state, faltas: state.faltas.filter((f) => f.id !== action.id) };
+    case "GERAR_SALARIOS":
+      return state;
+    case "SAVE_CONTA_BANCARIA": {
+      const exists = state.contasBancarias.some((c) => c.id === action.conta.id);
+      return {
+        ...state,
+        contasBancarias: exists
+          ? state.contasBancarias.map((c) => (c.id === action.conta.id ? action.conta : c))
+          : [...state.contasBancarias, action.conta],
+      };
+    }
+    case "FATURAR_OPS": {
+      const jaFaturadas = new Set(state.faturamentos.map((f) => f.opId));
+      const ops = action.opIds
+        .map((id) => state.ops.find((o) => o.id === id))
+        .filter((o): o is OrdemProducao => !!o && !jaFaturadas.has(o.id));
+      if (!ops.length || !action.parcelas.length) return state;
+      const primeira = ops[0];
+      const grupoId = uid("fatg");
+      const numeros = ops.map((o) => o.numero).join(", ");
+      const total = action.parcelas.length;
+      const contas: ContaReceber[] = action.parcelas.map((p, i) => ({
+        id: uid("cr"),
+        empresaId: primeira.empresaId,
+        clienteId: primeira.clienteId,
+        descricao:
+          ops.length === 1
+            ? (() => {
+                const prod = state.produtos.find((x) => x.id === primeira.produtoId);
+                const skuTxt = resumoPecasSku(pecasOpPorSku(primeira));
+                return [`Venda ${prod?.referencia ?? primeira.numero}`, skuTxt, primeira.numero]
+                  .filter(Boolean)
+                  .join(" · ");
+              })()
+            : `Faturamento ${numeros}`,
+        origem: "faturamento",
+        origemId: grupoId,
+        opId: primeira.id,
+        opIds: ops.map((o) => o.id),
+        formaPagamento: action.formaPagamento,
+        contaBancariaId: action.contaBancariaId,
+        parcela: total > 1 ? { grupoId, numero: i + 1, total } : undefined,
+        contaPlanoId: PLANO_CONTA_IDS.receitaVendas,
+        categoriaId: CATEGORIA_IDS.receitaVendas,
+        valor: Number(p.valor.toFixed(2)),
+        vencimento: p.vencimento,
+        competencia: action.competencia,
+        recebimentos: [],
+      }));
+      const faturamentos = ops.map((op) => {
+        const pecas = op.quantidadeProduzida || op.quantidade;
+        return {
+          id: uid("fat"),
+          opId: op.id,
+          clienteId: op.clienteId,
+          empresaId: op.empresaId,
+          valor: pecas * (op.precoUnitario || 0),
+          data: action.dataFaturamento,
+          competencia: action.competencia,
+          contaReceberId: contas[0].id,
+        };
+      });
+      return {
+        ...state,
+        contasReceber: [...contas, ...state.contasReceber],
+        faturamentos: [...faturamentos, ...state.faturamentos],
+      };
+    }
+    case "REAJUSTAR_PRECOS": {
+      const alvo = action.produtoIds ? new Set(action.produtoIds) : null;
+      const hoje = todayISO();
+      return {
+        ...state,
+        produtos: state.produtos.map((p) => {
+          if (p.clienteId !== action.clienteId) return p;
+          if (alvo && !alvo.has(p.id)) return p;
+          const de = p.precoVenda || 0;
+          const para = Math.max(
+            0,
+            Number(
+              (action.modo === "percentual" ? de * (1 + action.valor / 100) : de + action.valor).toFixed(2),
+            ),
+          );
+          if (para === de) return p;
+          return {
+            ...p,
+            precoVenda: para,
+            historicoPreco: [
+              { id: uid("rjp"), data: hoje, de, para, motivo: action.motivo },
+              ...(p.historicoPreco ?? []),
+            ],
+          };
+        }),
+      };
+    }
+    case "REGISTRAR_ENTREGA": {
+      if (action.quantidade <= 0) return state;
+      return {
+        ...state,
+        ops: state.ops.map((o) =>
+          o.id !== action.opId
+            ? o
+            : {
+                ...o,
+                micros: o.micros.map((m) =>
+                  m.id !== action.microId
+                    ? m
+                    : {
+                        ...m,
+                        entregas: [
+                          ...(m.entregas ?? []),
+                          {
+                            id: uid("ent"),
+                            data: action.data,
+                            quantidade: action.quantidade,
+                            nota: action.nota,
+                          },
+                        ],
+                      },
+                ),
+              },
+        ),
+      };
+    }
+    case "REMOVER_ENTREGA":
+      return {
+        ...state,
+        ops: state.ops.map((o) =>
+          o.id !== action.opId
+            ? o
+            : {
+                ...o,
+                micros: o.micros.map((m) =>
+                  m.id !== action.microId
+                    ? m
+                    : { ...m, entregas: (m.entregas ?? []).filter((e) => e.id !== action.entregaId) },
+                ),
+              },
+        ),
+      };
     default:
       return state;
   }
@@ -1451,6 +1693,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useIsoLayoutEffect(() => {
     const stored = readStored();
     dispatch({ type: "HYDRATE", payload: stored ? mergeMissingOps(stored, seed.ops) : seed });
+    // Salário gerado automaticamente todo mês (idempotente).
+    dispatch({ type: "GERAR_SALARIOS", competencias: [competenciaAtual()] });
     setHydrated();
   }, []);
 

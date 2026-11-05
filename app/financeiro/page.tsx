@@ -94,7 +94,8 @@ export default function FinanceiroPage() {
           <>
             <Link href="/financeiro/plano-gerencial"><Button variant="ghost">Plano gerencial</Button></Link>
             <Link href="/financeiro/despesas"><Button variant="ghost">Despesas</Button></Link>
-            <Link href="/financeiro/receitas"><Button>Receita de vendas</Button></Link>
+            <Link href="/financeiro/fluxo-caixa"><Button variant="ghost">Fluxo de caixa</Button></Link>
+            <Link href="/financeiro/receitas"><Button>Receitas</Button></Link>
           </>
         }
       />
@@ -156,7 +157,10 @@ export default function FinanceiroPage() {
       </div>
 
       <div>
-        <p className="kicker mb-3">Fluxo de caixa — previsto × realizado</p>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <p className="kicker">Fluxo de caixa — previsto × realizado</p>
+          <Link href="/financeiro/fluxo-caixa" className="text-[12px] text-sky hover:underline">Controle diário →</Link>
+        </div>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <Stat label="Entradas previstas" value={brl.format(fluxo.previstoEntrada)} hint="Em aberto" />
           <Stat label="Entradas realizadas" value={brl.format(fluxo.realizadoEntrada)} tone="mint" />
