@@ -3,20 +3,19 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { brl, nInt } from "@/lib/format";
+import { nInt } from "@/lib/format";
 import { servicosDe } from "@/lib/migrate";
 import { opAtivaParaTerceirizado, opsDoTerceirizado } from "@/lib/terceirizado-ops";
 import {
   Badge,
   Button,
   Card,
-  DataTable,
   Empty,
   Input,
   PageHeader,
   Select,
+  TabPanel,
   Tabs,
-  Td,
 } from "@/components/ui";
 import { ServicosLista } from "@/components/terceirizados/servicos-lista";
 import { TerceirizadoForm } from "@/components/terceirizados/terceirizado-form";
@@ -38,23 +37,14 @@ function temAguardando(ops: ReturnType<typeof opsDoTerceirizado>, terceirizadoId
 export default function TerceirizadosPage() {
   const { state, currentUser, isAdmin } = useStore();
   const [novoAberto, setNovoAberto] = useState(false);
-  const [vista, setVista] = useState<"servicos" | "parceiros">("servicos");
+  const [vista, setVista] = useState<"servicos" | "parceiros">("parceiros");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<FiltroStatus>("todos");
   const [opsFiltro, setOpsFiltro] = useState<FiltroOps>("todas");
-  const [servicoFiltro, setServicoFiltro] = useState("todos");
 
   const base = isAdmin
     ? state.terceirizados
     : state.terceirizados.filter((t) => t.id === currentUser.terceirizadoId);
-
-  const servicosOpcoes = useMemo(() => {
-    const set = new Set<string>();
-    for (const t of base) {
-      for (const s of servicosDe(t)) if (s.nome.trim()) set.add(s.nome.trim());
-    }
-    return [...set].sort((a, b) => a.localeCompare(b, "pt-BR"));
-  }, [base]);
 
   const rows = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -72,18 +62,12 @@ export default function TerceirizadosPage() {
         if (opsFiltro === "com_ativas" && !ativas.length) return false;
         if (opsFiltro === "sem_ativas" && ativas.length) return false;
         if (opsFiltro === "aguardando" && !aguardando) return false;
-        if (
-          servicoFiltro !== "todos" &&
-          !servicos.some((s) => s.nome.trim() === servicoFiltro)
-        ) {
-          return false;
-        }
         if (!query) return true;
         const blob = `${t.nome} ${servicos.map((s) => s.nome).join(" ")}`.toLowerCase();
         return blob.includes(query);
       })
       .sort((a, b) => a.t.nome.localeCompare(b.t.nome, "pt-BR"));
-  }, [base, state.ops, q, status, opsFiltro, servicoFiltro]);
+  }, [base, state.ops, q, status, opsFiltro]);
 
   return (
     <div className="space-y-4 p-4">
@@ -92,7 +76,7 @@ export default function TerceirizadosPage() {
         title={isAdmin ? "Terceirizados" : "Meu perfil"}
         description={
           isAdmin
-            ? "Lista dos parceiros. Filtre e abra um para ver OPs, serviços e pagamentos."
+            ? "Toque num parceiro para abrir. A aba Serviços mostra o que está com cada um."
             : "Suas OPs ativas, serviços e histórico de pagamentos."
         }
         actions={
@@ -124,145 +108,107 @@ export default function TerceirizadosPage() {
           onChange={setVista}
           className="max-w-md"
           items={[
-            { id: "servicos", label: "Serviços com terceirizados" },
             { id: "parceiros", label: "Parceiros", count: base.length },
+            { id: "servicos", label: "Serviços com terceirizados" },
           ]}
         />
-      ) : null}
-
-      {isAdmin && vista === "servicos" ? <ServicosLista /> : null}
-
-      {isAdmin && vista === "parceiros" && novoAberto ? (
-        <Card className="p-4">
-          <p className="kicker mb-3">Novo terceirizado</p>
-          <TerceirizadoForm onSaved={() => setNovoAberto(false)} />
-        </Card>
       ) : null}
 
       {!isAdmin && currentUser.terceirizadoId ? (
         <ServicosLista terceirizadoId={currentUser.terceirizadoId} />
       ) : null}
 
-      {!isAdmin || vista === "parceiros" ? (
-      <>
       {isAdmin ? (
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          <Input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar nome ou serviço"
-            className="w-full sm:max-w-xs"
-          />
-          <Select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as FiltroStatus)}
-            className="w-full sm:w-40"
-          >
-            <option value="todos">Todos os status</option>
-            <option value="ativo">Ativos</option>
-            <option value="inativo">Inativos</option>
-          </Select>
-          <Select
-            value={opsFiltro}
-            onChange={(e) => setOpsFiltro(e.target.value as FiltroOps)}
-            className="w-full sm:w-48"
-          >
-            <option value="todas">Todas as OPs</option>
-            <option value="com_ativas">Com OP ativa</option>
-            <option value="sem_ativas">Sem OP ativa</option>
-            <option value="aguardando">Aguardando / pendência</option>
-          </Select>
-          <Select
-            value={servicoFiltro}
-            onChange={(e) => setServicoFiltro(e.target.value)}
-            className="w-full sm:w-52"
-          >
-            <option value="todos">Todos os serviços</option>
-            {servicosOpcoes.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </Select>
-        </div>
-      ) : null}
+        <TabPanel value={vista} className="space-y-4">
+          {vista === "servicos" ? <ServicosLista /> : null}
 
-      {rows.length ? (
-        <DataTable
-          headers={["Terceirizado", "Serviços", "OPs ativas", "Aguardando", "OPs total", "Valor ref.", "Status"]}
-        >
-          {rows.map(({ t, ops, ativas, aguardando, servicos }) => {
-            const valorRef = servicos[0]?.valorPorPeca ?? t.valorPorPeca ?? 0;
-            const qtdAguardando = ops.reduce(
-              (n, op) =>
-                n +
-                op.micros.filter(
-                  (m) =>
-                    m.terceirizadoId === t.id &&
-                    (m.status === "aguardando" || m.status === "pendencia"),
-                ).length,
-              0,
-            );
-            return (
-              <tr key={t.id} className="group">
-                <Td>
-                  <Link
-                    href={`/terceirizados/${t.id}`}
-                    className="font-medium text-sky hover:underline"
-                  >
-                    {t.nome}
-                  </Link>
-                </Td>
-                <Td>
-                  <span className="line-clamp-2 text-mute">
-                    {servicos.map((s) => s.nome).join(" · ") || "—"}
-                  </span>
-                </Td>
-                <Td>
-                  {ativas.length ? (
-                    <Badge tone="amber">{nInt.format(ativas.length)}</Badge>
-                  ) : (
-                    <span className="text-faint">0</span>
-                  )}
-                </Td>
-                <Td>
-                  {aguardando ? (
-                    <Badge tone="amber">{nInt.format(qtdAguardando)}</Badge>
-                  ) : (
-                    <span className="text-faint">0</span>
-                  )}
-                </Td>
-                <Td>{nInt.format(ops.length)}</Td>
-                <Td className="tabular-nums">
-                  {valorRef > 0 ? `${brl.format(valorRef)}/pç` : "—"}
-                </Td>
-                <Td>
-                  <Badge tone={t.ativo ? "mint" : "mute"}>
-                    {t.ativo ? "Ativo" : "Inativo"}
-                  </Badge>
-                </Td>
-              </tr>
-            );
-          })}
-        </DataTable>
-      ) : (
-        <Empty
-          title="Nenhum terceirizado encontrado"
-          hint={
-            q || status !== "todos" || opsFiltro !== "todas" || servicoFiltro !== "todos"
-              ? "Ajuste os filtros ou a busca."
-              : "Cadastre o primeiro parceiro com o botão Novo."
-          }
-        />
-      )}
+          {vista === "parceiros" && novoAberto ? (
+            <Card className="p-4">
+              <p className="kicker mb-3">Novo terceirizado</p>
+              <TerceirizadoForm onSaved={() => setNovoAberto(false)} />
+            </Card>
+          ) : null}
 
-      {rows.length ? (
-        <p className="text-[11px] text-faint">
-          {nInt.format(rows.length)} de {nInt.format(base.length)} terceirizado
-          {base.length === 1 ? "" : "s"}
-        </p>
-      ) : null}
-      </>
+          {vista === "parceiros" ? (
+            <>
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <Input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Buscar parceiro"
+                  className="w-full sm:max-w-xs"
+                />
+                <Select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as FiltroStatus)}
+                  className="w-full sm:w-40"
+                >
+                  <option value="todos">Todos os status</option>
+                  <option value="ativo">Ativos</option>
+                  <option value="inativo">Inativos</option>
+                </Select>
+                <Select
+                  value={opsFiltro}
+                  onChange={(e) => setOpsFiltro(e.target.value as FiltroOps)}
+                  className="w-full sm:w-48"
+                >
+                  <option value="todas">Todas as OPs</option>
+                  <option value="com_ativas">Com OP ativa</option>
+                  <option value="sem_ativas">Sem OP ativa</option>
+                  <option value="aguardando">Aguardando / pendência</option>
+                </Select>
+              </div>
+
+              {rows.length ? (
+                <ul className="divide-y divide-line overflow-hidden rounded-md border border-line bg-card">
+                  {rows.map(({ t, ativas, aguardando, servicos }) => (
+                    <li key={t.id}>
+                      <Link
+                        href={`/terceirizados/${t.id}`}
+                        className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-elevated/60"
+                      >
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-elevated text-[11px] font-semibold text-mute">
+                          {t.nome.slice(0, 2).toUpperCase()}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[14px] font-medium text-ink">{t.nome}</span>
+                          <span className="block truncate text-[12px] text-faint">
+                            {servicos.map((s) => s.nome).join(" · ") || "Sem serviços cadastrados"}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 flex-col items-end gap-1">
+                          <Badge tone={t.ativo ? "mint" : "mute"}>{t.ativo ? "Ativo" : "Inativo"}</Badge>
+                          <span className="text-[11px] text-faint">
+                            {ativas.length
+                              ? `${nInt.format(ativas.length)} OP${ativas.length === 1 ? "" : "s"} ativa${ativas.length === 1 ? "" : "s"}`
+                              : "Sem OP ativa"}
+                            {aguardando ? " · aguardando" : ""}
+                          </span>
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <Empty
+                  title="Nenhum terceirizado encontrado"
+                  hint={
+                    q || status !== "todos" || opsFiltro !== "todas"
+                      ? "Ajuste os filtros ou a busca."
+                      : "Cadastre o primeiro parceiro com o botão Novo."
+                  }
+                />
+              )}
+
+              {rows.length ? (
+                <p className="text-[11px] text-faint">
+                  {nInt.format(rows.length)} de {nInt.format(base.length)} parceiro
+                  {base.length === 1 ? "" : "s"} · clique para abrir
+                </p>
+              ) : null}
+            </>
+          ) : null}
+        </TabPanel>
       ) : null}
     </div>
   );

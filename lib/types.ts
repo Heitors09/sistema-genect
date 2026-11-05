@@ -416,7 +416,7 @@ export interface PlanoConta {
 }
 
 /**
- * Categoria financeira usada no lançamento.
+ * Categoria financeira usada no lançamento: nome + tipo + grupo DRE.
  * Sem grupo DRE, a categoria não entra no DRE.
  */
 export interface CategoriaFinanceira {
@@ -425,6 +425,7 @@ export interface CategoriaFinanceira {
   tipo: TipoCategoriaFinanceira;
   grupoDreId?: string;
   contaPlanoId?: string;
+  /** @deprecated Hierarquia removida; categorias são planas. */
   parentId?: string;
   ativa: boolean;
   padraoVendas?: boolean;

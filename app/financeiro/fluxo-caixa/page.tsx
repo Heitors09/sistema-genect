@@ -16,6 +16,7 @@ import {
   PageHeader,
   Select,
   Stat,
+  TabPanel,
   Tabs,
   Td,
   cn,
@@ -99,10 +100,10 @@ export default function FluxoCaixaPage() {
         <Select
           value={personalizado ? "custom" : "mes"}
           onChange={(e) => setPersonalizado(e.target.value === "custom")}
-          className="w-full sm:w-44"
+          className="w-full sm:w-52"
         >
-          <option value="mes">Por mês</option>
-          <option value="custom">Período personalizado</option>
+          <option value="mes">Dias de um mês</option>
+          <option value="custom">Intervalo de datas</option>
         </Select>
         {personalizado ? (
           <>
@@ -128,6 +129,7 @@ export default function FluxoCaixaPage() {
         ]}
       />
 
+      <TabPanel value={aba} className="space-y-4">
       {aba !== "comparativo" ? (
         <>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -259,6 +261,7 @@ export default function FluxoCaixaPage() {
           )}
         </>
       )}
+      </TabPanel>
 
       {diaDetalhe ? (
         <Modal

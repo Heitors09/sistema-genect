@@ -36,9 +36,9 @@ export function ParcelasEditor({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="w-32">
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="w-28">
           <Field label="Nº de parcelas">
             <Input
               type="number"
@@ -53,28 +53,34 @@ export function ParcelasEditor({
           Redistribuir valores
         </Button>
       </div>
-      <ul className="space-y-1.5">
+
+      <ul className="space-y-2">
         {value.map((p) => (
-          <li key={p.id} className="grid grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
-            <span className="text-[12px] tabular-nums text-mute">
-              {p.numero}/{value.length}
-            </span>
-            <DateInput
-              value={p.vencimento}
-              onChange={(e) => patch(p.id, { vencimento: e.target.value })}
-            />
-            <Input
-              type="number"
-              step="0.01"
-              min={0}
-              value={String(p.valor)}
-              onChange={(e) => patch(p.id, { valor: Number(e.target.value) || 0 })}
-              aria-label={`Valor da parcela ${p.numero}`}
-            />
+          <li key={p.id} className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[11rem] flex-1 basis-[11rem]">
+              <Field label={`Parcela ${p.numero}/${value.length}`}>
+                <DateInput
+                  value={p.vencimento}
+                  onChange={(e) => patch(p.id, { vencimento: e.target.value })}
+                />
+              </Field>
+            </div>
+            <div className="w-32 shrink-0">
+              <Field label="Valor (R$)">
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={String(p.valor)}
+                  onChange={(e) => patch(p.id, { valor: Number(e.target.value) || 0 })}
+                  aria-label={`Valor da parcela ${p.numero}`}
+                />
+              </Field>
+            </div>
             <button
               type="button"
               disabled={value.length <= 1}
-              className="grid h-9 w-9 place-items-center rounded-md text-faint hover:bg-elevated hover:text-rose disabled:opacity-30"
+              className="mb-[1px] grid h-9 w-9 shrink-0 place-items-center rounded-md text-faint hover:bg-elevated hover:text-rose disabled:opacity-30"
               aria-label="Remover parcela"
               onClick={() =>
                 onChange(
@@ -89,7 +95,8 @@ export function ParcelasEditor({
           </li>
         ))}
       </ul>
-      <p className={cn("text-[11px] tabular-nums", diff !== 0 ? "text-amber" : "text-faint")}>
+
+      <p className={cn("text-left text-[11px] tabular-nums", diff !== 0 ? "text-amber" : "text-faint")}>
         Soma das parcelas {brl.format(soma)} · total {brl.format(total)}
         {diff !== 0 ? ` · diferença ${brl.format(diff)}` : ""}
       </p>

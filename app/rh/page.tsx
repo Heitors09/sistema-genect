@@ -13,6 +13,7 @@ import {
   Empty,
   PageHeader,
   Stat,
+  TabPanel,
   Tabs,
   Td,
 } from "@/components/ui";
@@ -93,6 +94,7 @@ export default function RhPage() {
         ]}
       />
 
+      <TabPanel value={aba} className="space-y-2">
       {aba === "ativos" || aba === "demitidos" ? (
         (aba === "ativos" ? ativos : demitidos).length ? (
           <DataTable headers={["Nome", "Cargo", "Salário", "Admissão", aba === "ativos" ? "Tempo de casa" : "Demissão", "Mês atual", ""]}>
@@ -196,6 +198,7 @@ export default function RhPage() {
           )}
         </div>
       ) : null}
+      </TabPanel>
 
       {faltaPara !== null ? <FaltaModal funcionarioId={faltaPara || undefined} onClose={() => setFaltaPara(null)} /> : null}
       <DespesaModal

@@ -279,6 +279,7 @@ export type LancamentoFluxo = {
   href: string;
 };
 
+/** Uma linha do fluxo. `data` = dia `YYYY-MM-DD`. */
 export type DiaFluxo = {
   data: string;
   debito: number;
@@ -308,6 +309,7 @@ function nomeCliente(state: AppState, c: ContaReceber) {
 }
 
 /**
+ * Fluxo de caixa **diário**.
  * Débito = Despesas (contas a pagar). Crédito = Receitas (contas a receber).
  * Previsto: pelo vencimento (inclui parcelas previstas das OPs ainda não faturadas).
  * Realizado: pela data do pagamento/recebimento efetivo.

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { use, useMemo, useState } from "react";
-import { Badge, Button, ButtonLink, Card, Field, Input, Select, Stat, Textarea, cn } from "@/components/ui";
+import { Badge, Button, ButtonLink, Card, Field, Input, Select, Stat, TabPanel, Tabs, Textarea, cn } from "@/components/ui";
 import {
   brl,
   categoriaLabel,
@@ -199,24 +199,23 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
 
       <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
         <Card className="p-4">
-          <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-2 text-[12px]">
-            {(isAdmin ? (["fluxo", "insumos", "financeiro"] as const) : (["fluxo"] as const)).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTab(t)}
-                className={cn(
-                  "motion-press shrink-0 rounded-md px-3 py-2",
-                  t === tab ? "bg-elevated font-medium text-ink" : "text-mute hover:bg-elevated/60",
-                )}
-              >
-                {t === "fluxo" ? "Rastreio e atados" : t === "insumos" ? "Insumos e lote" : "Serviço e faturamento"}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            value={tab}
+            onChange={setTab}
+            className="mb-3 text-[12px]"
+            items={(isAdmin
+              ? ([
+                  { id: "fluxo", label: "Rastreio e atados" },
+                  { id: "insumos", label: "Insumos e lote" },
+                  { id: "financeiro", label: "Serviço e faturamento" },
+                ] as const)
+              : ([{ id: "fluxo", label: "Rastreio e atados" }] as const)
+            ).map((t) => ({ ...t }))}
+          />
 
+          <TabPanel value={tab} className="space-y-4">
           {tab === "fluxo" ? (
-            <div className="page-enter mt-3 space-y-4">
+            <div className="space-y-4">
               {op.fotosFicha.length || prod?.imagens.length ? (
                 <div className="flex flex-wrap gap-2">
                   {[...op.fotosFicha, ...(prod?.imagens ?? [])].map((src) => (
@@ -359,7 +358,7 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
           ) : null}
 
           {tab === "insumos" ? (
-            <div className="page-enter mt-3 space-y-2 text-[13px]">
+            <div className="space-y-2 text-[13px]">
               {needsInsumo.length ? (
                 <>
                   {needsInsumo.map((n) => {
@@ -402,7 +401,7 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
           ) : null}
 
           {tab === "financeiro" && isAdmin ? (
-            <div className="page-enter mt-3 space-y-3 text-[13px]">
+            <div className="space-y-3 text-[13px]">
               <ValorServicoResumo pecas={pecasServico} linhas={calcServico.linhas} total={calcServico.total} />
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -431,6 +430,7 @@ export default function OpDetailPage({ params }: { params: Promise<{ id: string 
               </p>
             </div>
           ) : null}
+          </TabPanel>
           {faturarAberto ? (
             <FaturarModal
               opIds={[op.id]}

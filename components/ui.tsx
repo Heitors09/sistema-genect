@@ -3,6 +3,7 @@
 import {
   Children,
   cloneElement,
+  Fragment,
   isValidElement,
   useEffect,
   useId,
@@ -186,19 +187,21 @@ export function DateInput({
   }, []);
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState(false);
+  const [wasOpen, setWasOpen] = useState(false);
   const [cursor, setCursor] = useState(() => selected ?? today);
   const rootRef = useRef<HTMLDivElement>(null);
   const cells = useMemo(() => calendarCells(cursor), [cursor]);
 
-  useEffect(() => {
-    if (open) setCursor(parseISODate(current) ?? today);
-  }, [open, current, today]);
-
-  useEffect(() => {
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setPanel(true);
-      return;
+      setCursor(parseISODate(current) ?? today);
     }
+  }
+
+  useEffect(() => {
+    if (open) return;
     const t = window.setTimeout(() => setPanel(false), 160);
     return () => window.clearTimeout(t);
   }, [open]);
@@ -430,21 +433,23 @@ export function Select({
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState(false);
+  const [wasOpen, setWasOpen] = useState(false);
   const options = useMemo(() => collectOptions(children), [children]);
   const current = String(value ?? "");
   const selected = options.find((o) => o.value === current) ?? options[0];
   const selectedIndex = Math.max(0, options.findIndex((o) => o.value === current));
   const [active, setActive] = useState(selectedIndex);
 
-  useEffect(() => {
-    if (open) setActive(selectedIndex);
-  }, [open, selectedIndex]);
-
-  useEffect(() => {
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) {
       setPanel(true);
-      return;
+      setActive(selectedIndex);
     }
+  }
+
+  useEffect(() => {
+    if (open) return;
     const t = window.setTimeout(() => setPanel(false), 160);
     return () => window.clearTimeout(t);
   }, [open]);
@@ -867,11 +872,72 @@ export function Tabs<T extends string>({
   items: { id: T; label: string; count?: number }[];
   className?: string;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const btnRefs = useRef(new Map<T, HTMLButtonElement>());
+  const [pill, setPill] = useState({ x: 0, y: 0, w: 0, h: 0, visible: false });
+  const canAnimate = useRef(false);
+  const [motionOn, setMotionOn] = useState(false);
+  const rafRef = useRef(0);
+  const itemsKey = items.map((i) => `${i.id}:${i.label}:${i.count ?? ""}`).join("|");
+
+  useEffect(() => {
+    function place() {
+      const list = listRef.current;
+      const btn = btnRefs.current.get(value);
+      if (!list || !btn) return;
+      const lr = list.getBoundingClientRect();
+      const br = btn.getBoundingClientRect();
+      setPill({
+        x: br.left - lr.left + list.scrollLeft,
+        y: br.top - lr.top + list.scrollTop,
+        w: br.width,
+        h: br.height,
+        visible: true,
+      });
+      if (!canAnimate.current) {
+        canAnimate.current = true;
+        // Próximo frame: liga transition (evita pular na 1ª pintura).
+        requestAnimationFrame(() => setMotionOn(true));
+      }
+    }
+
+    const id = requestAnimationFrame(place);
+    const list = listRef.current;
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(place);
+    }) : null;
+    if (list && ro) ro.observe(list);
+    window.addEventListener("resize", place, { passive: true });
+    return () => {
+      cancelAnimationFrame(id);
+      cancelAnimationFrame(rafRef.current);
+      ro?.disconnect();
+      window.removeEventListener("resize", place);
+    };
+  }, [value, itemsKey]);
+
+  const pillTransition = motionOn
+    ? "transform 480ms cubic-bezier(0.22, 1, 0.36, 1), width 480ms cubic-bezier(0.22, 1, 0.36, 1), height 480ms cubic-bezier(0.22, 1, 0.36, 1)"
+    : "none";
+
   return (
     <div
+      ref={listRef}
       role="tablist"
-      className={cn("flex flex-wrap gap-1 rounded-md border border-line bg-panel p-1", className)}
+      className={cn("relative flex flex-wrap gap-1 rounded-md border border-line bg-panel p-1", className)}
     >
+      <span
+        aria-hidden
+        className="tab-pill"
+        style={{
+          width: pill.w,
+          height: pill.h,
+          opacity: pill.visible ? 1 : 0,
+          transform: `translate3d(${pill.x}px, ${pill.y}px, 0)`,
+          transition: pillTransition,
+        }}
+      />
       {items.map((t) => {
         const active = value === t.id;
         return (
@@ -880,12 +946,14 @@ export function Tabs<T extends string>({
             type="button"
             role="tab"
             aria-selected={active}
+            ref={(el) => {
+              if (el) btnRefs.current.set(t.id, el);
+              else btnRefs.current.delete(t.id);
+            }}
             onClick={() => onChange(t.id)}
             className={cn(
-              "min-h-9 rounded-md px-3 text-[13px] font-medium transition-colors",
-              active
-                ? "bg-elevated text-ink shadow-[inset_0_1px_0_rgb(255_255_255_/_0.06)]"
-                : "text-mute hover:text-ink",
+              "relative z-[1] min-h-9 rounded-md px-3 text-[13px] font-medium transition-colors duration-300",
+              active ? "text-ink" : "text-mute hover:text-ink",
             )}
           >
             {t.label}
@@ -893,6 +961,47 @@ export function Tabs<T extends string>({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/** Achata Fragments aninhados (ternário + `<>...</>`) para animar cada bloco. */
+function flattenNodes(nodes: ReactNode): ReactNode[] {
+  const out: ReactNode[] = [];
+  Children.forEach(nodes, (child) => {
+    if (child == null || child === false || child === true) return;
+    if (isValidElement(child) && child.type === Fragment) {
+      out.push(...flattenNodes((child.props as { children?: ReactNode }).children));
+      return;
+    }
+    out.push(child);
+  });
+  return out;
+}
+
+/** Conteúdo da aba: cada filho faz fade 0→1 (só opacity) ao trocar `value`. */
+export function TabPanel({
+  value,
+  children,
+  className,
+}: {
+  value: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  const nodes = flattenNodes(children);
+
+  return (
+    <div role="tabpanel" className={cn("tab-panel-root", className)}>
+      {nodes.map((child, i) => (
+        <div
+          key={`${value}-${i}`}
+          className="tab-fade-item"
+          style={{ animationDelay: `${i * 80}ms` }}
+        >
+          {child}
+        </div>
+      ))}
     </div>
   );
 }

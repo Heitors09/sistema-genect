@@ -1110,15 +1110,18 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
           </Field>
         </div>
 
-        <div className="rounded-md border border-line p-3">
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-            <p className="kicker">Faturamento e pagamento</p>
+        <div className="space-y-3 rounded-md border border-line p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <div>
+              <p className="kicker">Faturamento e pagamento</p>
+              <p className="mt-0.5 text-[11px] text-faint">Previsão de pagamento da OP</p>
+            </div>
             <span className="text-[12px] tabular-nums text-mute">
               Valor da OP <span className="font-medium text-ink">{brl.format(valorVenda)}</span>
             </span>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="Data de faturamento" hint="Previsão de pagamento da OP">
+            <Field label="Data de faturamento">
               <DateInput value={pagDataFat} onChange={(e) => setPagDataFat(e.target.value)} />
             </Field>
             <Field label="Forma de pagamento">
@@ -1137,24 +1140,22 @@ export function OpForm({ initial, roteiroSel }: { initial?: OrdemProducao; rotei
               />
             </Field>
           </div>
-          <div className="mt-3">
-            <ParcelasEditor
-              total={valorVenda}
-              primeiroVencimento={primeiroVencimento}
-              value={parcelas}
-              onChange={setParcelasManual}
-            />
-            {parcelasTouched ? (
-              <button
-                type="button"
-                className="mt-1 text-[11px] text-sky hover:underline"
-                onClick={() => setParcelasManual(null)}
-              >
-                Voltar ao cálculo automático
-              </button>
-            ) : null}
-          </div>
-          <p className="mt-2 text-[11px] text-faint">
+          <ParcelasEditor
+            total={valorVenda}
+            primeiroVencimento={primeiroVencimento}
+            value={parcelas}
+            onChange={setParcelasManual}
+          />
+          {parcelasTouched ? (
+            <button
+              type="button"
+              className="text-left text-[11px] text-sky hover:underline"
+              onClick={() => setParcelasManual(null)}
+            >
+              Voltar ao cálculo automático
+            </button>
+          ) : null}
+          <p className="text-[11px] text-faint">
             Prazo e parcelas vão para Receitas como vencimento do valor a receber ao faturar.
           </p>
         </div>
